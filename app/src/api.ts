@@ -95,3 +95,20 @@ export const favoritePrompt = (id: string) =>
 
 export const usePrompt = (id: string) =>
   api<{ ok: boolean }>('/prompts/use', { method: 'POST', body: JSON.stringify({ id }) })
+
+export interface DeviceStart {
+  userCode: string
+  deviceAuthId: string
+  intervalMs: number
+  verificationUrl: string
+  expiresAt: string | null
+}
+
+export const startChatgptDevice = () =>
+  api<DeviceStart>('/account/chatgpt/device/start', { method: 'POST' })
+
+export const pollChatgptDevice = (deviceAuthId: string, userCode: string) =>
+  api<{ status: 'pending' | 'connected'; email?: string; expiresAt?: number }>('/account/chatgpt/device/poll', {
+    method: 'POST',
+    body: JSON.stringify({ deviceAuthId, userCode }),
+  })

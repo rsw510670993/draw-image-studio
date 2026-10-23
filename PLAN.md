@@ -293,3 +293,4 @@ location ^~ /draw/ {
   - 生成仍为前端模拟（演示数据），真实通道未接；`/draw/api`、`/draw/media` 待后端接入后启用；
   - 预览截图在 `docs/preview/`（不进 nginx 暴露目录）。
 - **2026-10-23 v0.2 GPT 通道真实接通**：手机完成 OAuth 登录（手动 code），后端 draw-api 保存加密 token；`POST /draw/api/generate` 调 `chatgpt.com/backend-api/codex/images/generations`，实测单张约 28 秒、1536×1024 输出，落盘 `data/media/YYYY/MM/` 并入库；图库、收藏、软删除均走真实 API。即梦通道、参考图（图生图）、批量生成仍未接。
+- **2026-10-23 v0.3 提示词库 + 开源仓库**：「灵感」页改为个人提示词库（新建/编辑/标签/收藏/搜索/带入工作台，存 SQLite），工作台加「保存」按钮；图像/提示词接口走 `/draw/api/*`。GitHub 仓库 `rsw510670993/draw-image-studio`（public，MIT，工程名取 draw-image-studio，站点路径仍为 `/draw/`），已排除 `data/`、`web/`、`node_modules` 与含账号信息的 `docs/preview/`。

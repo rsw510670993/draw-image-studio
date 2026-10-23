@@ -47,7 +47,9 @@ PLAN.md   方案与实施记录
 
 ## 登录 ChatGPT（订阅通道）
 
-设置页 → 登录 ChatGPT → 用 ChatGPT 账号完成授权。浏览器会跳到 `http://localhost:1455/auth/callback`，这个地址打不开是**正常的**：复制地址栏整条 URL 粘回 Draw 的输入框即可完成登录。之后的 token 刷新由后端自动处理。
+设置页 → 登录 ChatGPT → 页面给出一串 8 位验证码（例如 `D9UT-EDIJP`）→ 在任意设备打开 <https://auth.openai.com/codex/device> 输入验证码并授权。Draw 会自动轮询并在授权完成后保存 token，**不需要复制 localhost 链接**。
+
+旧的回调链接方式保留为折叠备选：授权后浏览器跳到 `localhost:1455` 打不开属正常，复制地址栏整条 URL 粘回页面即可。token 刷新由后端自动处理。
 
 ![设置](docs/screenshots/settings.png)
 

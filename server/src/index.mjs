@@ -99,6 +99,13 @@ const CODEX = {
   imageModel: 'gpt-image-2.5-flare',
 }
 
+const DEVICE = {
+  userCodeUrl: 'https://auth.openai.com/api/accounts/deviceauth/usercode',
+  tokenUrl: 'https://auth.openai.com/api/accounts/deviceauth/token',
+  authUrl: 'https://auth.openai.com/codex/device',
+  redirectUri: 'https://auth.openai.com/deviceauth/callback',
+}
+
 const b64url = buf => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 
 const pendings = new Map()
@@ -347,6 +354,69 @@ function listImages(limit = 60) {
   }))
 }
 
+async function deviceStart() {
+  const res = await fetch(DEVICE.userCodeUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ client_id: CODEX.clientId }),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok || typeof json.user_code !== 'string' || typeof json.device_auth_id !== 'string') {
+    throw new Error(`申请设备码失败：${json?.error?.message ?? `HTTP ${res.status}`}`)
+  }
+  return {
+    userCode: json.user_code,
+    deviceAuthId: json.device_auth_id,
+    intervalMs: Math.max(Number(json.interval) || 5, 1) * 1000,
+    verificationUrl: DEVICE.authUrl,
+    expiresAt: json.expires_at ?? null,
+  }
+}
+
+async function devicePoll({ deviceAuthId, userCode }) {
+  if (!deviceAuthId || !userCode) throw new Error('缺少设备码参数')
+  const res = await fetch(DEVICE.tokenUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ device_auth_id: deviceAuthId, user_code: userCode }),
+  })
+  // 403/404 = 用户还没确认授权
+  if (res.status === 403 || res.status === 404) return { status: 'pending' }
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(`设备码轮询失败：${json?.error?.message ?? `HTTP ${res.status}`}`)
+  if (typeof json.authorization_code !== 'string' || typeof json.code_verifier !== 'string') {
+    throw new Error('设备码授权响应不完整')
+  }
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: CODEX.clientId,
+    code: json.authorization_code,
+    redirect_uri: DEVICE.redirectUri,
+    code_verifier: json.code_verifier,
+  })
+  const tokenRes = await fetch(CODEX.tokenUrl, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+    body,
+  })
+  const tokenJson = await tokenRes.json().catch(() => ({}))
+  if (!tokenRes.ok) {
+    throw new Error(`换取 token 失败：${tokenJson.error_description ?? tokenJson.error ?? `HTTP ${tokenRes.status}`}`)
+  }
+  const claims = decodeJwt(tokenJson.id_token ?? '')
+  const blob = {
+    accessToken: tokenJson.access_token ?? '',
+    refreshToken: tokenJson.refresh_token ?? '',
+    expiresAt: Date.now() + (Number(tokenJson.expires_in) || 3600) * 1000,
+    accountId: accountIdOf(claims),
+    email: claims.email ?? '',
+    label: claims.email ?? 'ChatGPT',
+  }
+  if (!blob.accessToken) throw new Error('设备码授权后未拿到 access token')
+  writeAccount('chatgpt', blob)
+  return { status: 'connected', email: blob.email, expiresAt: blob.expiresAt }
+}
+
 function accountStatus() {
   const blob = readAccount('chatgpt')
   if (!blob) return { provider: 'chatgpt', connected: false }
@@ -416,6 +486,18 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'GET' && route === '/account/status') {
       return sendJson(res, 200, accountStatus())
+    }
+
+    if (method === 'POST' && route === '/account/chatgpt/device/start') {
+      return sendJson(res, 200, await deviceStart())
+    }
+
+    if (method === 'POST' && route === '/account/chatgpt/device/poll') {
+      const body = await readBody(req)
+      return sendJson(res, 200, await devicePoll({
+        deviceAuthId: typeof body.deviceAuthId === 'string' ? body.deviceAuthId : '',
+        userCode: typeof body.userCode === 'string' ? body.userCode : '',
+      }))
     }
 
     if (method === 'POST' && route === '/account/chatgpt/login/start') {

@@ -1,7 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CheckCircle2, Copy, ExternalLink, HardDrive, KeyRound, Loader2, LogOut, RefreshCw, Sparkles } from 'lucide-react'
 import type { Img } from '../data'
-import { completeChatgptLogin, logoutChatgpt, startChatgptLogin, type AccountStatus, type LoginStart } from '../api'
+import {
+  completeChatgptLogin,
+  logoutChatgpt,
+  pollChatgptDevice,
+  startChatgptDevice,
+  startChatgptLogin,
+  type AccountStatus,
+  type DeviceStart,
+  type LoginStart,
+} from '../api'
 
 interface Props {
   images: Img[]
@@ -14,22 +23,62 @@ const fmt = (ts?: number) =>
   ts === undefined ? '—' : new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
 export default function SettingsPage({ images, onToast, account, onRefreshAccount }: Props) {
+  const [device, setDevice] = useState<DeviceStart | null>(null)
   const [pending, setPending] = useState<LoginStart | null>(null)
   const [callback, setCallback] = useState('')
-  const [busy, setBusy] = useState<'start' | 'complete' | null>(null)
+  const [busy, setBusy] = useState<'start' | 'complete' | 'manual' | null>(null)
   const [error, setError] = useState('')
 
   const bytes = images.reduce((sum, img) => sum + (img.bytes ?? 0), 0)
   const usedGb = bytes / 1e9
   const pct = Math.min(100, Math.round((usedGb / 5) * 100))
 
-  const begin = async () => {
+  // 设备码轮询：pending 时每 interval 拉一次，授权成功自动收尾
+  useEffect(() => {
+    if (!device) return
+    let stopped = false
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await pollChatgptDevice(device.deviceAuthId, device.userCode)
+        if (stopped) return
+        if (res.status === 'connected') {
+          window.clearInterval(timer)
+          setDevice(null)
+          setError('')
+          onToast(`ChatGPT 已连接：${res.email || '账号'}`)
+          onRefreshAccount()
+        }
+      } catch (err) {
+        if (stopped) return
+        window.clearInterval(timer)
+        setError((err as Error).message)
+      }
+    }, Math.max(device.intervalMs, 3000))
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [device, onToast, onRefreshAccount])
+
+  const beginDevice = async () => {
     setBusy('start')
     setError('')
     try {
+      setDevice(await startChatgptDevice())
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const beginManual = async () => {
+    setBusy('manual')
+    setError('')
+    try {
       setPending(await startChatgptLogin())
-    } catch (e) {
-      setError((e as Error).message)
+    } catch (err) {
+      setError((err as Error).message)
     } finally {
       setBusy(null)
     }
@@ -45,10 +94,25 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
       setPending(null)
       setCallback('')
       onRefreshAccount()
-    } catch (e) {
-      setError((e as Error).message)
+    } catch (err) {
+      setError((err as Error).message)
     } finally {
       setBusy(null)
+    }
+  }
+
+  const cancelDevice = () => {
+    setDevice(null)
+    setError('')
+  }
+
+  const copyCode = async () => {
+    if (!device) return
+    try {
+      await navigator.clipboard.writeText(device.userCode)
+      onToast('验证码已复制')
+    } catch {
+      onToast('复制失败，请长按代码手动复制')
     }
   }
 
@@ -67,8 +131,8 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
       await logoutChatgpt()
       onRefreshAccount()
       onToast('已登出 ChatGPT')
-    } catch (e) {
-      onToast((e as Error).message)
+    } catch (err) {
+      onToast((err as Error).message)
     }
   }
 
@@ -120,12 +184,29 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
                 </span>
                 <button className="btn-soft" onClick={signOut}><LogOut size={14} /> 登出</button>
               </div>
+            ) : device ? (
+              <div className="device-flow">
+                <span className="device-label">在手机或电脑浏览器打开下面的页面，输入此验证码并授权：</span>
+                <div className="device-code-row">
+                  <code className="device-code">{device.userCode}</code>
+                  <button className="icon-btn" onClick={copyCode} title="复制验证码"><Copy size={14} /></button>
+                </div>
+                <a className="device-link" href={device.verificationUrl} target="_blank" rel="noreferrer">
+                  {device.verificationUrl.replace('https://', '')} <ExternalLink size={12} />
+                </a>
+                <div className="device-status">
+                  <Loader2 size={13} className="spin" />
+                  <span>等待授权…授权后会自动完成，无需再复制任何链接</span>
+                  <button className="ghost-btn" onClick={cancelDevice}>取消</button>
+                </div>
+                {error && <p className="login-error">{error}</p>}
+              </div>
             ) : pending ? (
               <div className="login-flow">
                 <div className="login-step">
                   <b>1</b>
                   <span>
-                    打开授权页，登录并授权（手机即可，需能访问 OpenAI）：
+                    打开授权页，登录并授权：
                     <a className="login-link" href={pending.authorizeUrl} target="_blank" rel="noreferrer">
                       打开 OpenAI 授权页 <ExternalLink size={11} />
                     </a>
@@ -154,10 +235,18 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
               </div>
             ) : (
               <>
-                <button className="btn-soft" onClick={begin} disabled={busy === 'start'}>
+                <button className="btn-soft" onClick={beginDevice} disabled={busy === 'start'}>
                   {busy === 'start' ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} 登录 ChatGPT
                 </button>
-                <p className="login-hint">没有电脑也能登录：手机浏览器完成授权后，把打不开的 localhost 地址栏整条链接粘回来即可。</p>
+                <p className="login-hint">
+                  推荐方式：点登录后会出一串 8 位验证码，手机打开 <code>auth.openai.com/codex/device</code> 输入即可，无需复制 localhost 链接。
+                </p>
+                <details className="manual-login">
+                  <summary>或使用旧的手动粘贴回调链接</summary>
+                  <button className="ghost-btn" onClick={beginManual} disabled={busy === 'manual'}>
+                    {busy === 'manual' ? <Loader2 size={14} className="spin" /> : null} 生成授权链接
+                  </button>
+                </details>
                 {error && <p className="login-error">{error}</p>}
               </>
             )}
@@ -215,7 +304,7 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
         </button>
       </section>
 
-      <p className="settings-foot">Draw v0.2 预览版 · GPT 登录已接真实接口 · 生成通道尚未接入</p>
+      <p className="settings-foot">Draw v0.3 预览版 · GPT 通道已接通 · 支持设备码登录</p>
     </div>
   )
 }
