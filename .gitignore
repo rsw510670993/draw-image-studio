@@ -1,0 +1,7 @@
+node_modules/
+app/.npm-cache/
+web/
+data/
+docs/preview/
+*.log
+.DS_Store

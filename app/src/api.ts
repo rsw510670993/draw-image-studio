@@ -1,0 +1,97 @@
+export interface AccountStatus {
+  provider: 'chatgpt'
+  connected: boolean
+  email?: string
+  accountId?: string
+  expiresAt?: number
+  expired?: boolean
+  model?: string
+}
+
+export interface LoginStart {
+  authorizeUrl: string
+  state: string
+  redirectUri: string
+}
+
+const BASE = '/draw/api'
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    ...init,
+    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+  })
+  if (res.status === 401) {
+    location.href = `/login?next=${encodeURIComponent('/draw/')}`
+    throw new Error('未登录')
+  }
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) {
+    throw new Error(typeof data.error === 'string' ? data.error : `HTTP ${res.status}`)
+  }
+  return data as T
+}
+
+export const getAccountStatus = () => api<AccountStatus>('/account/status')
+
+export const startChatgptLogin = () =>
+  api<LoginStart>('/account/chatgpt/login/start', { method: 'POST' })
+
+export const completeChatgptLogin = (callback: string, state: string) =>
+  api<{ ok: boolean; email: string; expiresAt: number }>('/account/chatgpt/login/complete', {
+    method: 'POST',
+    body: JSON.stringify({ callback, state }),
+  })
+
+export const logoutChatgpt = () => api<{ ok: boolean }>('/account/chatgpt/logout', { method: 'POST' })
+
+export interface ApiImage {
+  id: string
+  provider: string
+  model: string
+  prompt: string
+  ratio: string
+  bytes: number
+  favorite: boolean
+  createdAt: number
+  url: string
+}
+
+export const getImages = () => api<{ images: ApiImage[] }>('/images?limit=120')
+
+export const generateImage = (body: { prompt: string; ratio: string }) =>
+  api<{ images: Array<{ id: string; url: string; bytes: number; ratio: string }> }>('/generate', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+
+export const favoriteImage = (id: string) =>
+  api<{ ok: boolean; favorite: boolean }>('/images/favorite', { method: 'POST', body: JSON.stringify({ id }) })
+
+export const deleteImage = (id: string) =>
+  api<{ ok: boolean }>('/images/delete', { method: 'POST', body: JSON.stringify({ id }) })
+
+export interface PromptItem {
+  id: string
+  title: string
+  text: string
+  tags: string
+  favorite: boolean
+  useCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+export const getPrompts = () => api<{ prompts: PromptItem[] }>('/prompts')
+
+export const savePrompt = (body: { id?: string; title?: string; text: string; tags?: string }) =>
+  api<{ ok: boolean; id: string }>('/prompts/save', { method: 'POST', body: JSON.stringify(body) })
+
+export const deletePrompt = (id: string) =>
+  api<{ ok: boolean }>('/prompts/delete', { method: 'POST', body: JSON.stringify({ id }) })
+
+export const favoritePrompt = (id: string) =>
+  api<{ ok: boolean; favorite: boolean }>('/prompts/favorite', { method: 'POST', body: JSON.stringify({ id }) })
+
+export const usePrompt = (id: string) =>
+  api<{ ok: boolean }>('/prompts/use', { method: 'POST', body: JSON.stringify({ id }) })
