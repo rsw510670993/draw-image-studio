@@ -238,6 +238,14 @@ const SIZE_TABLE = {
   '9:16': '864x1536',
 }
 
+function imageExt(buffer) {
+  if (buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return 'jpg'
+  if (buffer.length > 8 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) return 'png'
+  if (buffer.length > 12 && buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WEBP') return 'webp'
+  if (buffer.length > 2 && buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) return 'gif'
+  return 'png'
+}
+
 function saveImageBuffer(buffer, meta) {
   const now = new Date()
   const year = String(now.getFullYear())
@@ -245,10 +253,11 @@ function saveImageBuffer(buffer, meta) {
   const dir = path.join(DATA, 'media', year, month)
   fs.mkdirSync(dir, { recursive: true })
   const id = crypto.randomUUID()
-  fs.writeFileSync(path.join(dir, `${id}.png`), buffer)
+  const ext = imageExt(buffer)
+  fs.writeFileSync(path.join(dir, `${id}.${ext}`), buffer)
   db.prepare('INSERT INTO images (id, provider, model, prompt, ratio, path, bytes, created_at, favorite) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)')
-    .run(id, meta.provider, meta.model, meta.prompt, meta.ratio ?? '', path.join(year, month, `${id}.png`), buffer.length, Date.now())
-  return { id, url: `/draw/media/${year}/${month}/${id}.png`, bytes: buffer.length, ratio: meta.ratio }
+    .run(id, meta.provider, meta.model, meta.prompt, meta.ratio ?? '', path.join(year, month, `${id}.${ext}`), buffer.length, Date.now())
+  return { id, url: `/draw/media/${year}/${month}/${id}.${ext}`, bytes: buffer.length, ratio: meta.ratio }
 }
 
 async function generateImage({ prompt, ratio, size, quality }) {
