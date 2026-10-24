@@ -735,3 +735,23 @@ select { padding-right: 30px; }
 @media (max-width: 640px) {
   .select-bar { margin-left: 0; flex-wrap: wrap; }
 }
+
+/* ---------- batch mode ---------- */
+.mode-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mode-switch { display: inline-flex; padding: 3px; border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(0, 0, 0, 0.22); }
+.mode-switch button { padding: 5px 12px; border-radius: 8px; color: var(--muted); font-size: 12px; }
+.mode-switch button.on { background: var(--surface-2); color: var(--text); }
+.mode-hint { color: var(--faint); font-size: 11.5px; }
+.batch-queue { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 12px; background: rgba(0, 0, 0, 0.18); }
+.batch-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--muted); }
+.batch-prompt { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.batch-state { flex-shrink: 0; color: var(--faint); }
+.batch-row.done .batch-state { color: var(--ok); }
+.batch-row.failed .batch-state { color: var(--danger); }
+.batch-row.running .batch-state { color: var(--accent); }
+/* trash */
+.tile.trash img { opacity: 0.55; }
+.tile.trash .tile-actions { opacity: 1; }
+.tile.trash .tile-actions button { width: auto; padding: 0 10px; font-size: 11.5px; }
+.trash-meta { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; color: var(--faint); font-size: 10.5px; }
+.trash-meta span:first-child { color: var(--muted); }

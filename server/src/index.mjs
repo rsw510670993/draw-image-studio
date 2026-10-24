@@ -371,8 +371,11 @@ function savePrompt({ id, title, text, tags }) {
   return { id: nextId }
 }
 
-function listImages(limit = 60) {
-  const rows = db.prepare('SELECT id, provider, model, prompt, ratio, path, bytes, created_at, favorite FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?').all(limit)
+function listImages(limit = 60, options = {}) {
+  const trash = options.trash === true
+  const rows = trash
+    ? db.prepare('SELECT id, provider, model, prompt, ratio, path, bytes, created_at, favorite, deleted_at FROM images WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT ?').all(limit)
+    : db.prepare('SELECT id, provider, model, prompt, ratio, path, bytes, created_at, favorite, deleted_at FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?').all(limit)
   return rows.map(row => ({
     id: row.id,
     provider: row.provider,
@@ -382,6 +385,7 @@ function listImages(limit = 60) {
     bytes: row.bytes,
     favorite: row.favorite === 1,
     createdAt: row.created_at,
+    deletedAt: row.deleted_at ?? null,
     url: `/draw/media/${row.path}`,
   }))
 }
@@ -835,7 +839,14 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'GET' && route === '/images') {
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 60) || 60, 200)
-      return sendJson(res, 200, { images: listImages(limit) })
+      return sendJson(res, 200, { images: listImages(limit, { trash: url.searchParams.get('trash') === '1' }) })
+    }
+
+    if (method === 'POST' && route === '/images/restore') {
+      const body = await readBody(req)
+      const result = db.prepare('UPDATE images SET deleted_at = NULL WHERE id = ?').run(String(body.id ?? ''))
+      if (result.changes === 0) throw new Error('图片不存在')
+      return sendJson(res, 200, { ok: true })
     }
 
     if (method === 'POST' && route === '/images/delete-batch') {

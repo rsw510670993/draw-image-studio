@@ -54,10 +54,12 @@ export interface ApiImage {
   bytes: number
   favorite: boolean
   createdAt: number
+  deletedAt?: number | null
   url: string
 }
 
-export const getImages = () => api<{ images: ApiImage[] }>('/images?limit=120')
+export const getImages = (options?: { trash?: boolean; limit?: number }) =>
+  api<{ images: ApiImage[] }>(`/images?limit=${options?.limit ?? 120}${options?.trash ? '&trash=1' : ''}`)
 
 export const generateImage = (body: {
   prompt: string
@@ -174,3 +176,7 @@ export const cleanupImages = () =>
 
 export const getStorage = () =>
   api<{ count: number; bytes: number; trashCount: number; trashBytes: number }>('/storage')
+
+
+export const restoreImage = (id: string) =>
+  api<{ ok: boolean }>('/images/restore', { method: 'POST', body: JSON.stringify({ id }) })

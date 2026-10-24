@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Copy, Download, Heart, Search, Trash2, X } from 'lucide-react'
 import { CHANNELS, type Img } from '../data'
-import { deleteImages } from '../api'
+import { deleteImages, getImages, restoreImage, type ApiImage } from '../api'
 
 interface Props {
   images: Img[]
@@ -9,19 +9,39 @@ interface Props {
   onFavorite: (id: string) => void
   onDelete: (id: string) => void
   onDeleted: (ids: string[]) => void
+  onRefreshImages: () => void
 }
 
-const FILTERS = ['全部', '即梦', 'ChatGPT', '收藏'] as const
+const FILTERS = ['全部', '即梦', 'ChatGPT', '收藏', '回收站'] as const
 
 const fmt = (ts: number) =>
   new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-export default function Gallery({ images, onToast, onFavorite, onDelete, onDeleted }: Props) {
+export default function Gallery({ images, onToast, onFavorite, onDelete, onDeleted, onRefreshImages }: Props) {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('全部')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selecting, setSelecting] = useState(false)
   const [picked, setPicked] = useState<string[]>([])
+  const [trashItems, setTrashItems] = useState<ApiImage[]>([])
+
+  const loadTrash = () => getImages({ trash: true }).then(res => setTrashItems(res.images)).catch(() => {})
+
+  useEffect(() => {
+    if (filter === '回收站') loadTrash()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter])
+
+  const restore = async (id: string) => {
+    try {
+      await restoreImage(id)
+      setTrashItems(prev => prev.filter(item => item.id !== id))
+      onRefreshImages()
+      onToast('已恢复到图库')
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   const togglePick = (id: string) =>
     setPicked(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
@@ -48,6 +68,7 @@ export default function Gallery({ images, onToast, onFavorite, onDelete, onDelet
   }
 
   const list = useMemo(() => {
+    if (filter === '回收站') return []
     let rows = images
     if (filter === '即梦') rows = rows.filter(i => i.channel === 'jimeng')
     if (filter === 'ChatGPT') rows = rows.filter(i => i.channel === 'gpt')
@@ -75,7 +96,7 @@ export default function Gallery({ images, onToast, onFavorite, onDelete, onDelet
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜索提示词…" />
         </label>
 
-        <span className="count">{list.length} 张</span>
+        <span className="count">{filter === '回收站' ? trashItems.length : list.length} 张</span>
         {selecting ? (
           <div className="select-bar">
             <button className="ghost-btn" onClick={toggleAll}>
@@ -91,7 +112,29 @@ export default function Gallery({ images, onToast, onFavorite, onDelete, onDelet
         )}
       </div>
 
-      {list.length === 0 ? (
+      {filter === '回收站' ? (
+        trashItems.length === 0 ? (
+          <div className="empty-card">
+            <p>回收站是空的</p>
+            <span>删除的图片会在这里保留 30 天，可随时恢复。</span>
+          </div>
+        ) : (
+          <div className="masonry">
+            {trashItems.map(item => (
+              <figure className="tile trash" key={item.id}>
+                <img src={item.url} alt={item.prompt} loading="lazy" />
+                <div className="tile-actions">
+                  <button onClick={() => restore(item.id)} title="恢复">恢复</button>
+                </div>
+                <figcaption className="trash-meta">
+                  <span>{item.prompt.slice(0, 40)}</span>
+                  <span>删除于 {fmt(item.deletedAt ?? item.createdAt)}</span>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        )
+      ) : list.length === 0 ? (
         <div className="empty-card">
           <p>没有匹配的图片</p>
           <span>试试清空搜索，或去工作台生成第一张。</span>

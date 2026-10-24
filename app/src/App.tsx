@@ -221,6 +221,7 @@ export default function App() {
               onToast={toast}
               onOpenGallery={() => setPage('gallery')}
               defaults={settings ?? undefined}
+              jobs={jobs}
             />
           )}
           {page === 'gallery' && (
@@ -230,6 +231,7 @@ export default function App() {
               onFavorite={toggleFavorite}
               onDelete={removeImage}
               onDeleted={ids => setImages(prev => prev.filter(img => !ids.includes(img.id)))}
+              onRefreshImages={loadImages}
             />
           )}
           {page === 'compare' && (

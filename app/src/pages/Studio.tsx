@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BookmarkPlus, Download, Heart, ImagePlus, Loader2, Minus, Plus, Sparkles, Upload, Wand2, X } from 'lucide-react'
+import { BookmarkPlus, Download, Heart, ImagePlus, Layers, Loader2, Minus, Plus, Sparkles, Upload, Wand2, X } from 'lucide-react'
 import { CHANNELS, RATIOS, type Channel, type GenRequest, type Img } from '../data'
 import { savePrompt, type AppSettings } from '../api'
 import type { Job } from '../App'
@@ -13,6 +13,7 @@ interface Props {
   onToast: (text: string) => void
   onOpenGallery: () => void
   defaults?: AppSettings
+  jobs?: Job[]
 }
 
 const COST: Record<string, number> = {
@@ -21,10 +22,12 @@ const COST: Record<string, number> = {
   'jimeng-image-3.1': 1,
 }
 
-export default function Studio({ prompt, onPrompt, job, images, onGenerate, onToast, onOpenGallery, defaults }: Props) {
+export default function Studio({ prompt, onPrompt, job, images, onGenerate, onToast, onOpenGallery, defaults, jobs = [] }: Props) {
   const [channel, setChannel] = useState<Channel>('gpt')
   const [model, setModel] = useState(CHANNELS.gpt.models[0].id)
   const [res, setRes] = useState(CHANNELS.gpt.models[0].res[0])
+  const [batch, setBatch] = useState(false)
+  const [batchRunning, setBatchRunning] = useState(false)
   const [ratio, setRatio] = useState(defaults?.ratio ?? '1:1')
   const [count, setCount] = useState(defaults?.count ?? 2)
   const [refFiles, setRefFiles] = useState<File[]>([])
@@ -62,6 +65,8 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
     setRefPreviews(next.map(f => URL.createObjectURL(f)))
   }
 
+  const batchPrompts = prompt.split('\n').map(line => line.trim()).filter(Boolean).slice(0, 8)
+
   const readRefs = () => Promise.all(refFiles.map(file => new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
@@ -71,6 +76,19 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
 
   const submit = async () => {
     if (!prompt.trim() || running) return
+    if (batch) {
+      if (batchPrompts.length === 0 || batchRunning) return
+      setBatchRunning(true)
+      try {
+        for (const line of batchPrompts) {
+          await onGenerate({ prompt: line, channel, model, ratio, resolution: res, count: 1 })
+        }
+        onToast(`批量完成 ${batchPrompts.length} 组`)
+      } finally {
+        setBatchRunning(false)
+      }
+      return
+    }
     const refs = refFiles.length > 0 ? await readRefs() : []
     onGenerate({ prompt: prompt.trim(), channel, model, ratio, resolution: res, count: outCount, ...(refs.length ? { refs } : {}) })
   }
@@ -93,6 +111,14 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
           ))}
         </div>
 
+        <div className="mode-row">
+          <div className="mode-switch">
+            <button className={!batch ? 'on' : ''} onClick={() => setBatch(false)}>单张</button>
+            <button className={batch ? 'on' : ''} onClick={() => setBatch(true)}>批量</button>
+          </div>
+          {batch && <span className="mode-hint">每行一个提示词，最多 8 组，每组 1 张</span>}
+        </div>
+
         <label className="field">
           <span className="field-label">
             提示词
@@ -103,7 +129,9 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
             maxLength={2000}
             rows={5}
             onChange={e => onPrompt(e.target.value)}
-            placeholder={'描述你想要的画面：主体、风格、光线、构图…\n例如：雨夜霓虹街头的赛博朋克猫，湿漉漉的柏油路反光，电影感光线'}
+            placeholder={batch
+              ? '每行一个提示词，例如：\n雨夜霓虹街头的赛博朋克猫\n清晨薄雾中的京都小巷\n雪山脚下的孤独木屋'
+              : '描述你想要的画面：主体、风格、光线、构图…\n例如：雨夜霓虹街头的赛博朋克猫，湿漉漉的柏油路反光，电影感光线'}
           />
         </label>
 
@@ -195,11 +223,15 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
           </div>
         </div>
 
-        <button className="btn-primary" onClick={submit} disabled={running || !prompt.trim()}>
-          {running ? <><Loader2 size={17} className="spin" /> 生成中…</> : <><Sparkles size={17} /> 生成 {outCount} 张</>}
+        <button className="btn-primary" onClick={submit} disabled={running || batchRunning || !prompt.trim()}>
+          {batch
+            ? (batchRunning ? <><Loader2 size={17} className="spin" /> 批量生成中…</> : <><Layers size={17} /> 批量生成 {batchPrompts.length} 组</>)
+            : running ? <><Loader2 size={17} className="spin" /> 生成中…</> : <><Sparkles size={17} /> 生成 {outCount} 张</>}
         </button>
         <p className="cost-hint">
-          {channel === 'jimeng' ? `预计消耗 ${cost} 积分（每日赠送 66）` : '订阅额度 · 通常 30–60 秒出图'}
+          {batch
+            ? `每组 1 张 · 共 ${batchPrompts.length} 组${channel === 'jimeng' ? ` · 约 ${(COST[current.id] ?? 3) * batchPrompts.length} 积分` : ''}`
+            : channel === 'jimeng' ? `预计消耗 ${cost} 积分（每日赠送 66）` : '订阅额度 · 通常 30–60 秒出图'}
         </p>
       </section>
 
@@ -219,6 +251,19 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
           </div>
           <button className="ghost-btn" onClick={onOpenGallery}>打开图库 →</button>
         </div>
+
+        {batch && jobs.length > 0 && (
+          <div className="batch-queue">
+            {jobs.slice(0, 8).map(item => (
+              <div className={`batch-row ${item.status}`} key={item.id}>
+                <span className="batch-prompt">{item.prompt}</span>
+                <span className="batch-state">
+                  {item.status === 'running' ? `${item.progress}%` : item.status === 'done' ? '完成' : '失败'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {running && (
           <div className="panel running">
