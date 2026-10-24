@@ -22,7 +22,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   })
   if (res.status === 401) {
-    location.href = `/login?next=${encodeURIComponent('/draw/')}`
+    location.href = '/draw/'
     throw new Error('未登录')
   }
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -180,3 +180,15 @@ export const getStorage = () =>
 
 export const restoreImage = (id: string) =>
   api<{ ok: boolean }>('/images/restore', { method: 'POST', body: JSON.stringify({ id }) })
+
+export interface AuthStatus {
+  mode: 'token' | 'external'
+  authenticated: boolean
+}
+
+export const getAuthStatus = () => api<AuthStatus>('/auth/status')
+
+export const loginWithToken = (token: string) =>
+  api<{ ok: boolean; mode: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ token }) })
+
+export const logoutAuth = () => api<{ ok: boolean }>('/auth/logout', { method: 'POST' })

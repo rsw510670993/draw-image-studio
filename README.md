@@ -48,6 +48,13 @@ PLAN.md   方案与实施记录
    - `/draw/media/` → `data/media/`
    - 建议以上全部挂在站点 SSO 之后
 
+## 鉴权（两种模式）
+
+- `DRAW_AUTH=token`（默认）：后端自己校验访问。首次启动会生成 `data/secrets/access-token`（0600）并在日志打印一次，打开页面输入该 token 即可登录；也可用 `DRAW_ACCESS_TOKEN` 环境变量指定或轮换。脚本调用支持 `Authorization: Bearer <token>`。
+- `DRAW_AUTH=external`：信任反向代理的登录（如站点级 SSO、Basic Auth），后端不做二次校验。适合已有统一登录的部署。
+
+登录会话使用 HttpOnly 签名 Cookie（30 天，SameSite=Lax），右上角头像可退出登录。nginx 只需按所选模式决定是否在 `/draw/` 上挂 `auth_request`。
+
 ## 登录 ChatGPT（订阅通道）
 
 设置页 → 登录 ChatGPT → 页面给出一串 8 位验证码（例如 `D9UT-EDIJP`）→ 在任意设备打开 <https://auth.openai.com/codex/device> 输入验证码并授权。Draw 会自动轮询并在授权完成后保存 token，**不需要复制 localhost 链接**。

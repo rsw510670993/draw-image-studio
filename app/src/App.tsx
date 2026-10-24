@@ -5,7 +5,8 @@ import Gallery from './pages/Gallery'
 import Compare from './pages/Compare'
 import Inspo from './pages/Inspo'
 import SettingsPage from './pages/Settings'
-import { deleteImage, favoriteImage, generateImage, getAccountStatus, getImages, getJimengStatus, getSettings, saveSettings, type AccountStatus, type AppSettings, type JimengStatus } from './api'
+import Login from './pages/Login'
+import { deleteImage, favoriteImage, generateImage, getAccountStatus, getAuthStatus, getImages, getJimengStatus, getSettings, logoutAuth, saveSettings, type AccountStatus, type AppSettings, type AuthStatus, type JimengStatus } from './api'
 import { CHANNELS, type Channel, type GenRequest, type Img } from './data'
 
 export type Page = 'studio' | 'gallery' | 'compare' | 'inspo' | 'settings'
@@ -51,6 +52,8 @@ export default function App() {
   const [account, setAccount] = useState<AccountStatus | null>(null)
   const [jimeng, setJimeng] = useState<JimengStatus | null>(null)
   const [settings, setSettings] = useState<AppSettings | null>(null)
+  const [auth, setAuth] = useState<AuthStatus | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
   const toastTimers = useRef<number[]>([])
 
   const refreshAccount = useCallback(() => {
@@ -62,18 +65,23 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    getAuthStatus().then(setAuth).catch(() => setAuth({ mode: 'token', authenticated: false }))
+  }, [])
+
+  useEffect(() => {
+    if (!auth?.authenticated) return
     refreshAccount()
     refreshJimeng()
     getSettings().then(setSettings).catch(() => {})
-  }, [refreshAccount, refreshJimeng])
+  }, [auth?.authenticated, refreshAccount, refreshJimeng])
 
   const loadImages = useCallback(() => {
     getImages().then(res => setImages(res.images.map(toImg))).catch(() => {})
   }, [])
 
   useEffect(() => {
-    loadImages()
-  }, [loadImages])
+    if (auth?.authenticated) loadImages()
+  }, [auth?.authenticated, loadImages])
 
   const toast = useCallback((text: string) => {
     const id = uid()
@@ -152,6 +160,11 @@ export default function App() {
 
   const current = NAV.find(n => n.id === page)!
 
+  if (auth === null) return <div className="boot-screen">加载中…</div>
+  if (!auth.authenticated) {
+    return <Login mode={auth.mode} onSuccess={() => getAuthStatus().then(setAuth).catch(() => setAuth(null))} />
+  }
+
   return (
     <div className="shell">
       <aside className="side">
@@ -206,7 +219,28 @@ export default function App() {
                 <span className="pill idle"><i />ChatGPT 未连接</span>
               )}
             </div>
-            <span className="avatar" title="本地单用户">C</span>
+            <div className="account">
+              <span className="avatar" title="账号" onClick={() => setMenuOpen(v => !v)}>C</span>
+              {menuOpen && (
+                <div className="account-menu">
+                  <span className="account-mode">{auth?.mode === 'external' ? '站点统一登录' : 'Token 登录'}</span>
+                  {auth?.mode === 'external' ? (
+                    <a className="account-action" href="/logout">站点退出</a>
+                  ) : (
+                    <button
+                      className="account-action"
+                      onClick={async () => {
+                        await logoutAuth().catch(() => {})
+                        setMenuOpen(false)
+                        setAuth({ mode: 'token', authenticated: false })
+                      }}
+                    >
+                      退出登录
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

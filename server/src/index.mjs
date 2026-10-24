@@ -88,6 +88,93 @@ const writeAccount = (provider, blob) => {
 }
 const deleteAccount = provider => db.prepare('DELETE FROM accounts WHERE provider = ?').run(provider)
 
+/* ---------- auth ---------- */
+const AUTH_MODE = process.env.DRAW_AUTH === 'external' ? 'external' : 'token'
+const AUTH_COOKIE = 'draw_session'
+const AUTH_TTL = 30 * 24 * 3600 * 1000
+
+function loadAuthKey() {
+  const file = path.join(SECRETS, 'auth.key')
+  if (!fs.existsSync(file)) fs.writeFileSync(file, crypto.randomBytes(32), { mode: 0o600 })
+  return fs.readFileSync(file)
+}
+const AUTH_KEY = loadAuthKey()
+
+function loadAccessToken() {
+  const fromEnv = process.env.DRAW_ACCESS_TOKEN
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim()
+  const file = path.join(SECRETS, 'access-token')
+  if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim()
+  const token = crypto.randomBytes(24).toString('base64url')
+  fs.writeFileSync(file, token, { mode: 0o600 })
+  console.log(`[auth] generated access token: ${token}`)
+  return token
+}
+const ACCESS_TOKEN = loadAccessToken()
+
+function safeEqual(a, b) {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  if (left.length !== right.length) return false
+  return crypto.timingSafeEqual(left, right)
+}
+
+function signSession(issuedAt) {
+  return crypto.createHmac('sha256', AUTH_KEY).update(String(issuedAt)).digest('base64url')
+}
+
+function makeSessionCookie() {
+  const issuedAt = Date.now()
+  return `${issuedAt}.${signSession(issuedAt)}`
+}
+
+function readSessionCookie(value) {
+  if (!value) return false
+  const [issued, signature] = value.split('.')
+  if (!issued || !signature) return false
+  if (!safeEqual(signature, signSession(issued))) return false
+  return Date.now() - Number(issued) < AUTH_TTL
+}
+
+function parseCookies(header) {
+  const out = {}
+  if (!header) return out
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=')
+    if (index > 0) out[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim())
+  }
+  return out
+}
+
+function isAuthenticated(req) {
+  if (AUTH_MODE === 'external') return true
+  const cookies = parseCookies(req.headers.cookie)
+  if (cookies[AUTH_COOKIE] && readSessionCookie(cookies[AUTH_COOKIE])) return true
+  const header = req.headers.authorization
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    return safeEqual(header.slice(7).trim(), ACCESS_TOKEN)
+  }
+  return false
+}
+
+function sessionCookieHeader() {
+  const attrs = [
+    `${AUTH_COOKIE}=${encodeURIComponent(makeSessionCookie())}`,
+    'Path=/draw',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${Math.floor(AUTH_TTL / 1000)}`,
+  ]
+  if (process.env.COOKIE_SECURE !== 'false') attrs.push('Secure')
+  return attrs.join('; ')
+}
+
+function clearSessionCookieHeader() {
+  const attrs = [`${AUTH_COOKIE}=`, 'Path=/draw', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0']
+  if (process.env.COOKIE_SECURE !== 'false') attrs.push('Secure')
+  return attrs.join('; ')
+}
+
 /* ---------- settings ---------- */
 const DEFAULT_SETTINGS = { ratio: '1:1', jimengModel: 'jimeng-image-5.0-lite', count: 2 }
 
@@ -699,6 +786,33 @@ const server = http.createServer(async (req, res) => {
   const method = req.method ?? 'GET'
 
   try {
+    if (method === 'GET' && route === '/auth/status') {
+      return sendJson(res, 200, {
+        mode: AUTH_MODE,
+        authenticated: AUTH_MODE === 'external' ? true : isAuthenticated(req),
+      })
+    }
+
+    if (method === 'POST' && route === '/auth/login') {
+      if (AUTH_MODE === 'external') return sendJson(res, 200, { ok: true, mode: 'external' })
+      const body = await readBody(req)
+      const token = typeof body.token === 'string' ? body.token.trim() : ''
+      if (!token || !safeEqual(token, ACCESS_TOKEN)) {
+        return sendJson(res, 401, { error: '访问 token 不正确' })
+      }
+      res.setHeader('set-cookie', sessionCookieHeader())
+      return sendJson(res, 200, { ok: true, mode: 'token' })
+    }
+
+    if (method === 'POST' && route === '/auth/logout') {
+      res.setHeader('set-cookie', clearSessionCookieHeader())
+      return sendJson(res, 200, { ok: true })
+    }
+
+    if (route !== '/health' && !isAuthenticated(req)) {
+      return sendJson(res, 401, { error: 'unauthorized' })
+    }
+
     if (method === 'GET' && (route === '/health' || route === '/')) {
       return sendJson(res, 200, { ok: true, version: VERSION })
     }
