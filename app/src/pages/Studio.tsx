@@ -212,7 +212,9 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
               <b>{job?.progress ?? 0}%</b>
             </div>
             <div className="skeletons">
-              {Array.from({ length: 4 }).map((_, i) => <div className="skeleton" key={i} />)}
+              {Array.from({ length: Math.max(1, Math.min(4, outCount)) }).map((_, i) => (
+              <div className="skeleton" key={i} style={{ aspectRatio: ratio.replace(':', ' / ') }} />
+            ))}
             </div>
           </div>
         )}
