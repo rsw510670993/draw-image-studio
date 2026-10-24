@@ -467,7 +467,7 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
         </button>
       </section>
 
-      <p className="settings-foot">Draw v0.5.0 · ChatGPT 订阅 + 即梦 双通道 · 支持批量生图与图库回收站</p>
+      <p className="settings-foot">Draw v{__APP_VERSION__} · ChatGPT 订阅 + 即梦 双通道 · 构建于 {__BUILD_TIME__.slice(0, 10)}</p>
     </div>
   )
 }
