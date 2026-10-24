@@ -182,7 +182,7 @@ export default function App() {
 
         <div className="side-foot">
           <span className="demo-dot" />
-          <span className="side-foot-text">v0.2 · GPT 通道已接通</span>
+          <span className="side-foot-text">v0.5.0 · 双通道已接通</span>
         </div>
       </aside>
 

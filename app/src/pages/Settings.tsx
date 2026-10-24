@@ -457,7 +457,7 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
         </button>
       </section>
 
-      <p className="settings-foot">Draw v0.3 预览版 · GPT 通道已接通 · 支持设备码登录</p>
+      <p className="settings-foot">Draw v0.5.0 · ChatGPT 订阅 + 即梦 双通道 · 支持批量生图与图库回收站</p>
     </div>
   )
 }
