@@ -8,6 +8,7 @@ interface Props {
   account: AccountStatus | null
   jimeng: JimengStatus | null
   onGenerated: (img: Img) => void
+  onOpenGallery: () => void
 }
 
 const COST: Record<string, number> = {
@@ -18,12 +19,13 @@ const COST: Record<string, number> = {
 
 type SideState = { status: 'idle' | 'running' | 'done' | 'error'; image?: Img; error?: string; ms?: number }
 
-export default function Compare({ onToast, account, jimeng, onGenerated }: Props) {
+export default function Compare({ onToast, account, jimeng, onGenerated, onOpenGallery }: Props) {
   const [prompt, setPrompt] = useState('')
   const [ratio, setRatio] = useState('1:1')
   const [jimengModel, setJimengModel] = useState('jimeng-image-5.0-lite')
   const [gptSide, setGptSide] = useState<SideState>({ status: 'idle' })
   const [jmSide, setJmSide] = useState<SideState>({ status: 'idle' })
+  const [runPrompt, setRunPrompt] = useState('')
 
   const running = gptSide.status === 'running' || jmSide.status === 'running'
   const jimengName = CHANNELS.jimeng.models.find(m => m.id === jimengModel)?.name ?? 'Seedream'
@@ -35,22 +37,31 @@ export default function Compare({ onToast, account, jimeng, onGenerated }: Props
     if (!text || running) return
     setGptSide({ status: 'running' })
     setJmSide({ status: 'running' })
-    const started = performance.now()
+    setRunPrompt(text)
+    const t0 = performance.now()
+    const timed = (task: Promise<{ images: Array<{ id: string; url: string; bytes: number; ratio: string }> }>) =>
+      task.then(
+        res => ({ ok: true as const, res, ms: Math.round(performance.now() - t0) }),
+        err => ({ ok: false as const, err, ms: Math.round(performance.now() - t0) }),
+      )
 
-    const gptTask = generateImage({ prompt: text, channel: 'chatgpt', ratio, count: 1 })
-    const jmTask = generateImage({
-      prompt: text,
-      channel: 'jimeng',
-      model: jimengModel,
-      ratio,
-      resolution: jimengResolution,
-      count: 1,
-    })
-    const [gptRes, jmRes] = await Promise.allSettled([gptTask, jmTask])
-    const ms = Math.round(performance.now() - started)
+    const [gptOut, jmOut] = await Promise.all([
+      timed(generateImage({ prompt: text, channel: 'chatgpt', ratio, count: 1 })),
+      timed(generateImage({
+        prompt: text,
+        channel: 'jimeng',
+        model: jimengModel,
+        ratio,
+        resolution: jimengResolution,
+        count: 1,
+      })),
+    ])
 
-    if (gptRes.status === 'fulfilled' && gptRes.value.images[0]) {
-      const row = gptRes.value.images[0]
+    const errorText = (out: { ok: boolean; err?: unknown }) =>
+      out.ok ? '未返回图片' : out.err instanceof Error ? out.err.message : String(out.err ?? '未知错误')
+
+    if (gptOut.ok && gptOut.res.images[0]) {
+      const row = gptOut.res.images[0]
       const image: Img = {
         id: row.id,
         src: row.url,
@@ -62,18 +73,14 @@ export default function Compare({ onToast, account, jimeng, onGenerated }: Props
         createdAt: Date.now(),
         bytes: row.bytes,
       }
-      setGptSide({ status: 'done', image, ms })
+      setGptSide({ status: 'done', image, ms: gptOut.ms })
       onGenerated(image)
     } else {
-      setGptSide({
-        status: 'error',
-        error: gptRes.status === 'rejected' ? (gptRes.reason as Error).message : '未返回图片',
-        ms,
-      })
+      setGptSide({ status: 'error', error: errorText(gptOut), ms: gptOut.ms })
     }
 
-    if (jmRes.status === 'fulfilled' && jmRes.value.images[0]) {
-      const row = jmRes.value.images[0]
+    if (jmOut.ok && jmOut.res.images[0]) {
+      const row = jmOut.res.images[0]
       const image: Img = {
         id: row.id,
         src: row.url,
@@ -85,16 +92,14 @@ export default function Compare({ onToast, account, jimeng, onGenerated }: Props
         createdAt: Date.now(),
         bytes: row.bytes,
       }
-      setJmSide({ status: 'done', image, ms })
+      setJmSide({ status: 'done', image, ms: jmOut.ms })
       onGenerated(image)
     } else {
-      setJmSide({
-        status: 'error',
-        error: jmRes.status === 'rejected' ? (jmRes.reason as Error).message : '未返回图片',
-        ms,
-      })
+      setJmSide({ status: 'error', error: errorText(jmOut), ms: jmOut.ms })
     }
-    onToast('对比完成，两张结果已进图库')
+
+    const okCount = (gptOut.ok && gptOut.res.images.length > 0 ? 1 : 0) + (jmOut.ok && jmOut.res.images.length > 0 ? 1 : 0)
+    onToast(okCount === 2 ? '对比完成，两张结果已进图库' : `对比完成：${okCount} 个通道成功，详见卡片`)
   }
 
   const sideCard = (
@@ -135,13 +140,14 @@ export default function Compare({ onToast, account, jimeng, onGenerated }: Props
         )}
       </div>
       <div className="compare-meta">
-        {state.status === 'done' && (
+        {state.status === 'idle' ? (
+          <span className="muted">{meta}</span>
+        ) : (
           <>
             <span>{state.ms ? `${(state.ms / 1000).toFixed(1)} 秒` : ''}</span>
             <span>{meta}</span>
           </>
         )}
-        {state.status === 'idle' && <span className="muted">{meta}</span>}
       </div>
     </article>
   )
@@ -174,6 +180,9 @@ export default function Compare({ onToast, account, jimeng, onGenerated }: Props
             {running ? <><Loader2 size={16} className="spin" /> 对比中…</> : <><Sparkles size={16} /> 发起对比</>}
           </button>
         </div>
+        {(gptSide.status === 'done' || jmSide.status === 'done') && runPrompt !== prompt.trim() && (
+          <p className="compare-stale">提示词已修改，当前结果对应上一次提示词，请重新发起。</p>
+        )}
         <p className="compare-hint">
           ChatGPT 订阅额度（每次 1 张）· 即梦 {jimengPoints} 积分/张（余额 {jimeng?.points ?? '—'}）
           {!account?.connected && ' · ChatGPT 未连接'}
@@ -188,9 +197,9 @@ export default function Compare({ onToast, account, jimeng, onGenerated }: Props
 
       {(gptSide.status === 'done' || jmSide.status === 'done') && (
         <div className="compare-foot">
-          <a className="ghost-btn" href="/draw/gallery" onClick={e => { e.preventDefault(); onToast('用左侧「图库」查看全部结果') }}>
+          <button className="ghost-btn" onClick={onOpenGallery}>
             结果已保存到图库 <ArrowUpRight size={13} />
-          </a>
+          </button>
         </div>
       )}
     </div>

@@ -58,8 +58,10 @@ export default function App() {
           id: row.id,
           src: row.url,
           prompt: row.prompt,
-          channel: 'gpt' as Channel,
-          model: row.model === 'gpt-image-2.5-flare' ? 'GPT Image 2.5' : row.model,
+          channel: (row.provider === 'jimeng' ? 'jimeng' : 'gpt') as Channel,
+          model: row.provider === 'jimeng'
+            ? (CHANNELS.jimeng.models.find(m => m.id === row.model)?.name ?? row.model)
+            : (row.model === 'gpt-image-2.5-flare' ? 'GPT Image 2.5' : row.model),
           ratio: row.ratio || '1:1',
           favorite: row.favorite,
           createdAt: row.createdAt,
@@ -112,14 +114,15 @@ export default function App() {
       }))
       setImages(prev => [...made, ...prev])
       setJobs(prev => prev.map(j => (j.id === id ? { ...j, status: 'done', progress: 100, stage: '完成', results: made } : j)))
+      refreshJimeng()
       toast(`已生成 ${made.length} 张真实图片`)
     } catch (error) {
       window.clearInterval(timer)
-      const message = (error as Error).message
+      const message = error instanceof Error ? error.message : String(error)
       setJobs(prev => prev.map(j => (j.id === id ? { ...j, status: 'failed', stage: message } : j)))
       toast(message)
     }
-  }, [toast])
+  }, [toast, refreshJimeng])
 
   const activeJob = jobs[0]
 
@@ -222,7 +225,11 @@ export default function App() {
               onToast={toast}
               account={account}
               jimeng={jimeng}
-              onGenerated={img => setImages(prev => [img, ...prev])}
+              onGenerated={img => {
+                setImages(prev => [img, ...prev])
+                refreshJimeng()
+              }}
+              onOpenGallery={() => setPage('gallery')}
             />
           )}
           {page === 'inspo' && (

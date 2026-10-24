@@ -617,7 +617,9 @@ select { padding-right: 30px; }
   .page { padding: 16px 14px 40px; }
   .top { padding: 10px 14px; min-height: 62px; }
   .top-title p { display: none; }
-  .pills .pill.idle { display: none; }
+  .pills { display: none; }
+  .top-title { min-width: 0; }
+  .top-title h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .masonry { columns: 1; }
   .inspo-grid { grid-template-columns: 1fr; }
   .results { grid-template-columns: 1fr; }
@@ -722,3 +724,5 @@ select { padding-right: 30px; }
   .compare-stage { min-height: 240px; }
   .compare-result { max-height: 360px; }
 }
+
+.compare-stale { margin: 0; color: #f0c26b; font-size: 11.5px; line-height: 1.6; }
