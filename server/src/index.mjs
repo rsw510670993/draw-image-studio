@@ -428,6 +428,11 @@ async function generateImage({ prompt, ratio, size, quality, referenceImages = [
   const json = await res.json().catch(() => ({}))
   if (!res.ok) {
     const detail = json?.error?.message ?? json?.error ?? JSON.stringify(json).slice(0, 300)
+    const violations = Array.isArray(json?.error?.safety_violations) ? json.error.safety_violations : []
+    if (res.status === 400 && (violations.length > 0 || String(detail).includes('safety'))) {
+      const tags = violations.length > 0 ? `（${violations.join(', ')}）` : ''
+      throw new Error(`ChatGPT 安全策略拒绝了这次请求${tags}：参考图或提示词可能包含敏感内容。建议换一张参考图，或改用即梦通道重试。`)
+    }
     throw new Error(`ChatGPT 生成失败 HTTP ${res.status}: ${detail}`)
   }
   const rows = Array.isArray(json.data) ? json.data : []
