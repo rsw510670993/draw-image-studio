@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Copy, ExternalLink, HardDrive, KeyRound, Loader2, LogOut, QrCode, RefreshCw, Sparkles } from 'lucide-react'
 import type { Img } from '../data'
 import { CHANNELS } from '../data'
@@ -50,6 +50,8 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
   const [qrBusy, setQrBusy] = useState(false)
   const [qrError, setQrError] = useState('')
   const [defaults, setDefaults] = useState<AppSettings>(settings ?? { ratio: '1:1', jimengModel: 'jimeng-image-5.0-lite', count: 2 })
+  const [cleaning, setCleaning] = useState(false)
+  const cleaningRef = useRef(false)
 
   useEffect(() => {
     if (settings) setDefaults(settings)
@@ -444,17 +446,24 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
         </div>
         <button
           className="btn-soft"
+          disabled={cleaning}
           onClick={async () => {
+            if (cleaningRef.current) return
+            cleaningRef.current = true
+            setCleaning(true)
             try {
               const res = await cleanupImages()
               onToast(`已清理 ${res.removed} 张未收藏${res.purged ? `，释放回收站 ${res.purged} 张` : ''}`)
               onRefreshImages()
             } catch (error) {
               onToast(error instanceof Error ? error.message : String(error))
+            } finally {
+              cleaningRef.current = false
+              setCleaning(false)
             }
           }}
         >
-          <Sparkles size={14} /> 立即清理未收藏旧图
+          {cleaning ? <><Loader2 size={14} className="spin" /> 清理中…</> : <><Sparkles size={14} /> 立即清理未收藏旧图</>}
         </button>
       </section>
 
