@@ -693,3 +693,7 @@ select { padding-right: 30px; }
 @media (max-width: 640px) {
   .device-code { font-size: 17px; letter-spacing: 0.1em; padding: 7px 11px; }
 }
+
+/* ---------- jimeng qr login ---------- */
+.qr-panel { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.qr-image { width: 180px; height: 180px; border-radius: 12px; background: #fff; padding: 6px; }

@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { chromium } from 'playwright'
 
 const ROOT = '/var/www/html/draw'
 const DATA = path.join(ROOT, 'data')
@@ -479,6 +480,89 @@ async function jimengLogin(input) {
   return { provider: 'jimeng', connected: true, ...info }
 }
 
+const qrSessions = new Map()
+const QR_TTL = 5 * 60 * 1000
+
+async function captureJimengQr(popup) {
+  const el = popup.locator('img.semi-image-img').first()
+  if (await el.count()) {
+    const box = await el.boundingBox().catch(() => null)
+    if (box && box.width > 120) {
+      const buffer = await el.screenshot().catch(() => null)
+      if (buffer) return buffer
+    }
+  }
+  return popup.screenshot({ clip: { x: 108, y: 200, width: 186, height: 186 } })
+}
+
+async function closeQrSession(session) {
+  if (!session) return
+  await session.browser.close().catch(() => {})
+}
+
+async function jimengQrStart() {
+  for (const [id, existing] of qrSessions) {
+    qrSessions.delete(id)
+    await closeQrSession(existing)
+  }
+  const browser = await chromium.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] })
+  try {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'zh-CN' })
+    const page = await context.newPage()
+    await page.goto('https://jimeng.jianying.com/ai-tool/home', { waitUntil: 'domcontentloaded', timeout: 45000 })
+    await page.waitForTimeout(4000)
+    await page.getByText('登录', { exact: true }).first().click({ timeout: 10000 })
+    await page.waitForTimeout(1800)
+    await page.getByText('已阅读并同意').click({ timeout: 5000 }).catch(() => {})
+    const popupPromise = context.waitForEvent('page', { timeout: 12000 }).catch(() => null)
+    await page.mouse.click(886, 625)
+    const popup = await popupPromise
+    if (!popup) throw new Error('未能打开抖音扫码窗口，请重试')
+    await popup.waitForLoadState('domcontentloaded').catch(() => {})
+    await popup.waitForTimeout(4000)
+    const qr = await captureJimengQr(popup)
+    const sessionId = crypto.randomUUID()
+    qrSessions.set(sessionId, { browser, context, page, popup, createdAt: Date.now() })
+    return { sessionId, qr: `data:image/png;base64,${qr.toString('base64')}` }
+  } catch (error) {
+    await browser.close().catch(() => {})
+    throw error
+  }
+}
+
+async function jimengQrStatus(sessionId) {
+  const session = qrSessions.get(sessionId)
+  if (!session) return { status: 'expired' }
+  if (Date.now() - session.createdAt > QR_TTL) {
+    qrSessions.delete(sessionId)
+    await closeQrSession(session)
+    return { status: 'expired' }
+  }
+  const cookies = await session.context.cookies().catch(() => [])
+  const hit = cookies.find(c => c.name === 'sessionid_ss' && c.value) || cookies.find(c => c.name === 'sessionid' && c.value)
+  if (!hit) return { status: 'pending' }
+  try {
+    const info = await fetchJimengStatus(hit.value)
+    writeAccount('jimeng', { sessionid: hit.value, label: info.membership ?? '即梦账号', updatedAt: Date.now() })
+    qrSessions.delete(sessionId)
+    await closeQrSession(session)
+    return { status: 'connected', ...info }
+  } catch (error) {
+    qrSessions.delete(sessionId)
+    await closeQrSession(session)
+    return { status: 'error', error: error.message }
+  }
+}
+
+async function jimengQrCancel(sessionId) {
+  const session = qrSessions.get(sessionId)
+  if (session) {
+    qrSessions.delete(sessionId)
+    await closeQrSession(session)
+  }
+  return { ok: true }
+}
+
 async function generateJimeng({ prompt, model, ratio, resolution, count }) {
   const blob = readAccount('jimeng')
   if (!blob?.sessionid) throw new Error('尚未接入即梦，请先在设置里保存 sessionid')
@@ -567,6 +651,16 @@ function readBody(req) {
   })
 }
 
+setInterval(async () => {
+  const now = Date.now()
+  for (const [id, session] of qrSessions) {
+    if (now - session.createdAt > QR_TTL) {
+      qrSessions.delete(id)
+      await closeQrSession(session)
+    }
+  }
+}, 60 * 1000).unref()
+
 setInterval(() => {
   const now = Date.now()
   for (const [state, pending] of pendings) {
@@ -590,6 +684,19 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'GET' && route === '/account/jimeng/status') {
       return sendJson(res, 200, await jimengStatus())
+    }
+
+    if (method === 'POST' && route === '/account/jimeng/qr/start') {
+      return sendJson(res, 200, await jimengQrStart())
+    }
+
+    if (method === 'GET' && route === '/account/jimeng/qr/status') {
+      return sendJson(res, 200, await jimengQrStatus(url.searchParams.get('session') ?? ''))
+    }
+
+    if (method === 'POST' && route === '/account/jimeng/qr/cancel') {
+      const body = await readBody(req)
+      return sendJson(res, 200, await jimengQrCancel(String(body.sessionId ?? '')))
     }
 
     if (method === 'POST' && route === '/account/jimeng/login') {

@@ -6,3 +6,5 @@ docs/preview/
 *.log
 .DS_Store
 vendor/
+server/.playwright/
+server/.npm-cache/

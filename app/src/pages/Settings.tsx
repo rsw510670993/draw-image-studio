@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, Copy, ExternalLink, HardDrive, KeyRound, Loader2, LogOut, RefreshCw, Sparkles } from 'lucide-react'
+import { CheckCircle2, Copy, ExternalLink, HardDrive, KeyRound, Loader2, LogOut, QrCode, RefreshCw, Sparkles } from 'lucide-react'
 import type { Img } from '../data'
 import {
+  cancelJimengQr,
   completeChatgptLogin,
   loginJimeng,
   logoutChatgpt,
   logoutJimeng,
   pollChatgptDevice,
+  pollJimengQr,
   startChatgptDevice,
+  startJimengQr,
   startChatgptLogin,
   type AccountStatus,
   type DeviceStart,
+  type JimengQrStart,
   type JimengStatus,
   type LoginStart,
 } from '../api'
@@ -36,6 +40,9 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
   const [jimengInput, setJimengInput] = useState('')
   const [jimengBusy, setJimengBusy] = useState(false)
   const [jimengError, setJimengError] = useState('')
+  const [qr, setQr] = useState<JimengQrStart | null>(null)
+  const [qrBusy, setQrBusy] = useState(false)
+  const [qrError, setQrError] = useState('')
 
   const bytes = images.reduce((sum, img) => sum + (img.bytes ?? 0), 0)
   const usedGb = bytes / 1e9
@@ -67,6 +74,53 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
       window.clearInterval(timer)
     }
   }, [device, onToast, onRefreshAccount])
+
+  useEffect(() => {
+    if (!qr) return
+    let stopped = false
+    const timer = window.setInterval(async () => {
+      try {
+        const res = await pollJimengQr(qr.sessionId)
+        if (stopped) return
+        if (res.status === 'connected') {
+          window.clearInterval(timer)
+          setQr(null)
+          onToast(typeof res.points === 'number' ? `即梦已接入 · 剩余 ${res.points} 积分` : '即梦已接入')
+          onRefreshJimeng()
+        } else if (res.status === 'expired' || res.status === 'error') {
+          window.clearInterval(timer)
+          setQr(null)
+          setQrError(res.error ?? '二维码已过期，请重新获取')
+        }
+      } catch (err) {
+        if (stopped) return
+        window.clearInterval(timer)
+        setQrError((err as Error).message)
+      }
+    }, 2200)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [qr, onToast, onRefreshJimeng])
+
+  const startQr = async () => {
+    setQrBusy(true)
+    setQrError('')
+    setJimengError('')
+    try {
+      setQr(await startJimengQr())
+    } catch (err) {
+      setQrError((err as Error).message)
+    } finally {
+      setQrBusy(false)
+    }
+  }
+
+  const cancelQr = async () => {
+    if (qr) await cancelJimengQr(qr.sessionId).catch(() => {})
+    setQr(null)
+  }
 
   const beginDevice = async () => {
     setBusy('start')
@@ -200,23 +254,36 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
                 <span className="muted">{jimeng.error ?? 'sessionid 已加密保存，失效时重新粘贴即可'}</span>
                 <button className="btn-soft" onClick={signOutJimeng}><LogOut size={14} /> 断开</button>
               </div>
+            ) : qr ? (
+              <div className="qr-panel">
+                <img className="qr-image" src={qr.qr} alt="抖音扫码登录" />
+                <p className="login-hint">用抖音 App 扫码并在手机上确认，登录会自动完成。</p>
+                <div className="login-actions">
+                  <button className="ghost-btn" onClick={cancelQr}>取消</button>
+                </div>
+                {qrError && <p className="login-error">{qrError}</p>}
+              </div>
             ) : (
               <>
-                <textarea
-                  className="login-textarea"
-                  rows={2}
-                  value={jimengInput}
-                  onChange={e => setJimengInput(e.target.value)}
-                  placeholder="粘贴 sessionid 的值，或整段 sessionid=..."
-                />
-                <div className="login-actions">
-                  <button className="btn-soft" onClick={saveJimeng} disabled={!jimengInput.trim() || jimengBusy}>
-                    {jimengBusy ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} 保存并校验
-                  </button>
-                </div>
-                <p className="login-hint">
-                  获取方式：浏览器登录 jimeng.jianying.com → F12 → Application → Cookies → 复制 <code>sessionid</code> 的值。
-                </p>
+                <button className="btn-soft" onClick={startQr} disabled={qrBusy}>
+                  {qrBusy ? <Loader2 size={14} className="spin" /> : <QrCode size={14} />} 扫码登录（抖音）
+                </button>
+                <details className="manual-login">
+                  <summary>或手动粘贴 sessionid</summary>
+                  <textarea
+                    className="login-textarea"
+                    rows={2}
+                    value={jimengInput}
+                    onChange={e => setJimengInput(e.target.value)}
+                    placeholder="粘贴 sessionid 的值，或整段 sessionid=..."
+                  />
+                  <div className="login-actions">
+                    <button className="btn-soft" onClick={saveJimeng} disabled={!jimengInput.trim() || jimengBusy}>
+                      {jimengBusy ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} 保存并校验
+                    </button>
+                  </div>
+                </details>
+                {qrError && <p className="login-error">{qrError}</p>}
                 {(jimengError || jimeng?.error) && <p className="login-error">{jimengError || jimeng?.error}</p>}
               </>
             )}

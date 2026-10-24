@@ -138,3 +138,18 @@ export const loginJimeng = (sessionid: string) =>
   api<JimengStatus>('/account/jimeng/login', { method: 'POST', body: JSON.stringify({ sessionid }) })
 
 export const logoutJimeng = () => api<{ ok: boolean }>('/account/jimeng/logout', { method: 'POST' })
+
+export interface JimengQrStart {
+  sessionId: string
+  qr: string
+}
+
+export const startJimengQr = () => api<JimengQrStart>('/account/jimeng/qr/start', { method: 'POST' })
+
+export const pollJimengQr = (session: string) =>
+  api<{ status: 'pending' | 'connected' | 'expired' | 'error'; points?: number; membership?: string | null; error?: string }>(
+    `/account/jimeng/qr/status?session=${encodeURIComponent(session)}`,
+  )
+
+export const cancelJimengQr = (sessionId: string) =>
+  api<{ ok: boolean }>('/account/jimeng/qr/cancel', { method: 'POST', body: JSON.stringify({ sessionId }) })
