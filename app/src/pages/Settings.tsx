@@ -263,7 +263,7 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
               </span>
             </div>
             <dl className="channel-meta">
-              <div><dt>账号</dt><dd>{jimeng?.connected ? (jimeng.membership ?? 'sessionid') : '—'}</dd></div>
+              <div><dt>账号</dt><dd>{jimeng?.connected ? (jimeng.membership && jimeng.membership !== 'unknown' ? jimeng.membership : '已登录') : '—'}</dd></div>
               <div><dt>积分</dt><dd>{jimeng?.connected ? `${jimeng.points ?? '—'}（赠送 ${jimeng.giftPoints ?? '—'}）` : '—'}</dd></div>
               <div><dt>通道</dt><dd>jimeng-free-api · Seedream 5.0</dd></div>
             </dl>

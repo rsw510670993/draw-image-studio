@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bookmark, Columns, LayoutGrid, Settings as SettingsIcon, Sparkles } from 'lucide-react'
+import { Bookmark, Columns, LayoutGrid, Settings as SettingsIcon, Sparkles, User } from 'lucide-react'
 import Studio from './pages/Studio'
 import Gallery from './pages/Gallery'
 import Compare from './pages/Compare'
@@ -212,15 +212,17 @@ export default function App() {
                 <i />{jimeng?.connected ? `即梦 · ${jimeng.points ?? '?'} 积分` : '即梦 未接入'}
               </span>
               {account?.connected ? (
-                <span className="pill ok" title={account.email}>
-                  <i />ChatGPT · {account.email?.split('@')[0] ?? '已连接'}
+                <span className="pill ok">
+                  <i />ChatGPT 已连接
                 </span>
               ) : (
                 <span className="pill idle"><i />ChatGPT 未连接</span>
               )}
             </div>
             <div className="account">
-              <span className="avatar" title="账号" onClick={() => setMenuOpen(v => !v)}>C</span>
+              <span className="avatar" title="账号" onClick={() => setMenuOpen(v => !v)}>
+                <User size={16} strokeWidth={1.8} />
+              </span>
               {menuOpen && (
                 <div className="account-menu">
                   <span className="account-mode">{auth?.mode === 'external' ? '站点统一登录' : 'Token 登录'}</span>
