@@ -217,7 +217,14 @@ export default function App() {
           {page === 'gallery' && (
             <Gallery images={images} onToast={toast} onFavorite={toggleFavorite} onDelete={removeImage} />
           )}
-          {page === 'compare' && <Compare onToast={toast} />}
+          {page === 'compare' && (
+            <Compare
+              onToast={toast}
+              account={account}
+              jimeng={jimeng}
+              onGenerated={img => setImages(prev => [img, ...prev])}
+            />
+          )}
           {page === 'inspo' && (
             <Inspo
               onUse={text => {

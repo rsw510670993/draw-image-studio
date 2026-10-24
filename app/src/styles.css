@@ -697,3 +697,28 @@ select { padding-right: 30px; }
 /* ---------- jimeng qr login ---------- */
 .qr-panel { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .qr-image { width: 180px; height: 180px; border-radius: 12px; background: #fff; padding: 6px; }
+
+/* ---------- compare page v2 ---------- */
+.compare-prompt { display: flex; flex-direction: column; gap: 12px; padding: 18px; }
+.compare-prompt header h2 { margin: 0 0 6px; font-size: 17px; letter-spacing: -0.01em; }
+.compare-prompt header p { margin: 0; color: var(--faint); font-size: 12.5px; line-height: 1.6; }
+.compare-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.compare-model { width: 210px; }
+.compare-run { width: auto; padding: 10px 18px; }
+.compare-hint { margin: 0; color: var(--faint); font-size: 11.5px; line-height: 1.6; }
+.compare-stage { display: grid; place-items: center; min-height: 320px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line-soft); background: #05070b; }
+.compare-img-link { display: block; width: 100%; }
+.compare-result { display: block; width: 100%; max-height: 420px; object-fit: contain; }
+.compare-loading { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; padding: 60px 0; }
+.compare-error { padding: 22px; color: var(--danger); font-size: 12.5px; line-height: 1.7; text-align: left; width: 100%; }
+.compare-error b { display: block; margin-bottom: 6px; }
+.compare-error p { margin: 0; color: var(--muted); word-break: break-word; }
+.compare-meta { display: flex; justify-content: space-between; margin-top: 8px; color: var(--faint); font-size: 11.5px; }
+.compare-foot { display: flex; gap: 10px; }
+@media (max-width: 900px) {
+  .compare-controls { align-items: stretch; }
+  .compare-model { width: 100%; }
+  .compare-run { width: 100%; }
+  .compare-stage { min-height: 240px; }
+  .compare-result { max-height: 360px; }
+}
