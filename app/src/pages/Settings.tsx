@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Copy, ExternalLink, HardDrive, KeyRound, Loader2, LogOut, QrCode, RefreshCw, Sparkles } from 'lucide-react'
 import type { Img } from '../data'
+import { CHANNELS } from '../data'
 import {
   cancelJimengQr,
   completeChatgptLogin,
@@ -13,6 +14,7 @@ import {
   startJimengQr,
   startChatgptLogin,
   type AccountStatus,
+  type AppSettings,
   type DeviceStart,
   type JimengQrStart,
   type JimengStatus,
@@ -26,12 +28,15 @@ interface Props {
   onRefreshAccount: () => void
   jimeng: JimengStatus | null
   onRefreshJimeng: () => void
+  settings: AppSettings | null
+  onSaveSettings: (next: AppSettings) => void
+  onRefreshImages: () => void
 }
 
 const fmt = (ts?: number) =>
   ts === undefined ? '—' : new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-export default function SettingsPage({ images, onToast, account, onRefreshAccount, jimeng, onRefreshJimeng }: Props) {
+export default function SettingsPage({ images, onToast, account, onRefreshAccount, jimeng, onRefreshJimeng, settings, onSaveSettings, onRefreshImages }: Props) {
   const [device, setDevice] = useState<DeviceStart | null>(null)
   const [pending, setPending] = useState<LoginStart | null>(null)
   const [callback, setCallback] = useState('')
@@ -43,6 +48,17 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
   const [qr, setQr] = useState<JimengQrStart | null>(null)
   const [qrBusy, setQrBusy] = useState(false)
   const [qrError, setQrError] = useState('')
+  const [defaults, setDefaults] = useState<AppSettings>(settings ?? { ratio: '1:1', jimengModel: 'jimeng-image-5.0-lite', count: 2 })
+
+  useEffect(() => {
+    if (settings) setDefaults(settings)
+  }, [settings])
+
+  const updateDefaults = (patch: Partial<AppSettings>) => {
+    const next = { ...defaults, ...patch }
+    setDefaults(next)
+    onSaveSettings(next)
+  }
 
   const bytes = images.reduce((sum, img) => sum + (img.bytes ?? 0), 0)
   const usedGb = bytes / 1e9
@@ -390,21 +406,21 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
         <div className="settings-grid">
           <label className="field">
             <span className="field-label">默认比例</span>
-            <select defaultValue="1:1">
-              <option>1:1</option><option>4:3</option><option>3:2</option><option>16:9</option><option>9:16</option>
+            <select value={defaults.ratio} onChange={e => updateDefaults({ ratio: e.target.value })}>
+              {['1:1', '4:3', '3:2', '16:9', '9:16', '2:3'].map(r => <option key={r}>{r}</option>)}
             </select>
           </label>
           <label className="field">
-            <span className="field-label">默认分辨率</span>
-            <select defaultValue="2k"><option>1k</option><option>2k</option><option>4k</option></select>
+            <span className="field-label">默认即梦模型</span>
+            <select value={defaults.jimengModel} onChange={e => updateDefaults({ jimengModel: e.target.value })}>
+              {CHANNELS.jimeng.models.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
           </label>
           <label className="field">
             <span className="field-label">默认张数</span>
-            <select defaultValue="2"><option>1</option><option>2</option><option>3</option><option>4</option></select>
-          </label>
-          <label className="field">
-            <span className="field-label">模型并发</span>
-            <select defaultValue="2"><option>1</option><option>2</option><option>3</option></select>
+            <select value={String(defaults.count)} onChange={e => updateDefaults({ count: Number(e.target.value) })}>
+              {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
           </label>
         </div>
       </section>
@@ -425,7 +441,18 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
             <span>{images.length} 张 · 回收站 0 张</span>
           </div>
         </div>
-        <button className="btn-soft" onClick={() => onToast('清理任务接入后启用')}>
+        <button
+          className="btn-soft"
+          onClick={async () => {
+            try {
+              const res = await cleanupImages()
+              onToast(`已清理 ${res.removed} 张未收藏${res.purged ? `，释放回收站 ${res.purged} 张` : ''}`)
+              onRefreshImages()
+            } catch (error) {
+              onToast(error instanceof Error ? error.message : String(error))
+            }
+          }}
+        >
           <Sparkles size={14} /> 立即清理未收藏旧图
         </button>
       </section>

@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react'
 import { Copy, Download, Heart, Search, Trash2, X } from 'lucide-react'
 import { CHANNELS, type Img } from '../data'
+import { deleteImages } from '../api'
 
 interface Props {
   images: Img[]
   onToast: (text: string) => void
   onFavorite: (id: string) => void
   onDelete: (id: string) => void
+  onDeleted: (ids: string[]) => void
 }
 
 const FILTERS = ['全部', '即梦', 'ChatGPT', '收藏'] as const
@@ -14,10 +16,36 @@ const FILTERS = ['全部', '即梦', 'ChatGPT', '收藏'] as const
 const fmt = (ts: number) =>
   new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-export default function Gallery({ images, onToast, onFavorite, onDelete }: Props) {
+export default function Gallery({ images, onToast, onFavorite, onDelete, onDeleted }: Props) {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('全部')
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selecting, setSelecting] = useState(false)
+  const [picked, setPicked] = useState<string[]>([])
+
+  const togglePick = (id: string) =>
+    setPicked(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+
+  const exitSelect = () => {
+    setSelecting(false)
+    setPicked([])
+  }
+
+  const toggleAll = () => {
+    setPicked(prev => (prev.length === list.length ? [] : list.map(img => img.id)))
+  }
+
+  const batchDelete = async () => {
+    if (picked.length === 0) return
+    try {
+      await deleteImages(picked)
+      onDeleted(picked)
+      onToast(`已删除 ${picked.length} 张（回收站保留 30 天）`)
+      exitSelect()
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : String(error))
+    }
+  }
 
   const list = useMemo(() => {
     let rows = images
@@ -48,6 +76,19 @@ export default function Gallery({ images, onToast, onFavorite, onDelete }: Props
         </label>
 
         <span className="count">{list.length} 张</span>
+        {selecting ? (
+          <div className="select-bar">
+            <button className="ghost-btn" onClick={toggleAll}>
+              {picked.length === list.length && list.length > 0 ? '取消全选' : '全选'}
+            </button>
+            <button className="btn-soft danger" onClick={batchDelete} disabled={picked.length === 0}>
+              删除所选 {picked.length}
+            </button>
+            <button className="ghost-btn" onClick={exitSelect}>退出</button>
+          </div>
+        ) : (
+          <button className="btn-soft" onClick={() => setSelecting(true)}>批量选择</button>
+        )}
       </div>
 
       {list.length === 0 ? (
@@ -58,27 +99,38 @@ export default function Gallery({ images, onToast, onFavorite, onDelete }: Props
       ) : (
         <div className="masonry">
           {list.map(img => (
-            <figure className={`tile ${img.favorite ? 'fav' : ''}`} key={img.id} onClick={() => setSelectedId(img.id)}>
+            <figure
+              className={`tile ${img.favorite ? 'fav' : ''} ${picked.includes(img.id) ? 'picked' : ''}`}
+              key={img.id}
+              onClick={() => (selecting ? togglePick(img.id) : setSelectedId(img.id))}
+            >
               <img src={img.src} alt={img.prompt} loading="lazy" />
+              {selecting && (
+                <span className={`pick ${picked.includes(img.id) ? 'on' : ''}`}>
+                  {picked.includes(img.id) ? '✓' : ''}
+                </span>
+              )}
               <div className="tile-hover">
                 <span className={`tile-tag ${img.channel}`}>{CHANNELS[img.channel].short}</span>
                 <p>{img.prompt}</p>
               </div>
-              <div className="tile-actions">
-                <button
-                  onClick={e => { e.stopPropagation(); onFavorite(img.id) }}
-                  title={img.favorite ? '取消收藏' : '收藏'}
-                  className={img.favorite ? 'on' : ''}
-                >
-                  <Heart size={14} />
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); onToast('下载接入后启用') }}
-                  title="下载"
-                >
-                  <Download size={14} />
-                </button>
-              </div>
+              {!selecting && (
+                <div className="tile-actions">
+                  <button
+                    onClick={e => { e.stopPropagation(); onFavorite(img.id) }}
+                    title={img.favorite ? '取消收藏' : '收藏'}
+                    className={img.favorite ? 'on' : ''}
+                  >
+                    <Heart size={14} />
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); onToast('下载接入后启用') }}
+                    title="下载"
+                  >
+                    <Download size={14} />
+                  </button>
+                </div>
+              )}
             </figure>
           ))}
         </div>

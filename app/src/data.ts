@@ -42,14 +42,12 @@ export interface Img {
   bytes?: number
 }
 
-export const seedImages = (): Img[] =>
-  DEMO_IMAGES.map((d, i) => ({
-    id: `seed-${d.id}`,
-    src: imgSrc(d.file),
-    prompt: d.prompt,
-    channel: d.channel,
-    model: d.model,
-    ratio: d.ratio,
-    favorite: i === 2 || i === 7,
-    createdAt: Date.now() - i * 3600_000,
-  }))
+export interface GenRequest {
+  prompt: string
+  channel: Channel
+  model: string
+  ratio: string
+  resolution: string
+  count: number
+  refs?: string[]
+}

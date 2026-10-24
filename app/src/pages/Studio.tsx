@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BookmarkPlus, Download, Heart, ImagePlus, Loader2, Minus, Plus, Sparkles, Upload, Wand2, X } from 'lucide-react'
 import { CHANNELS, RATIOS, type Channel, type GenRequest, type Img } from '../data'
-import { savePrompt } from '../api'
+import { savePrompt, type AppSettings } from '../api'
 import type { Job } from '../App'
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   onGenerate: (req: GenRequest) => void
   onToast: (text: string) => void
   onOpenGallery: () => void
+  defaults?: AppSettings
 }
 
 const COST: Record<string, number> = {
@@ -20,13 +21,14 @@ const COST: Record<string, number> = {
   'jimeng-image-3.1': 1,
 }
 
-export default function Studio({ prompt, onPrompt, job, images, onGenerate, onToast, onOpenGallery }: Props) {
+export default function Studio({ prompt, onPrompt, job, images, onGenerate, onToast, onOpenGallery, defaults }: Props) {
   const [channel, setChannel] = useState<Channel>('gpt')
   const [model, setModel] = useState(CHANNELS.gpt.models[0].id)
   const [res, setRes] = useState(CHANNELS.gpt.models[0].res[0])
-  const [ratio, setRatio] = useState('1:1')
-  const [count, setCount] = useState(2)
-  const [refs, setRefs] = useState<string[]>([])
+  const [ratio, setRatio] = useState(defaults?.ratio ?? '1:1')
+  const [count, setCount] = useState(defaults?.count ?? 2)
+  const [refFiles, setRefFiles] = useState<File[]>([])
+  const [refPreviews, setRefPreviews] = useState<string[]>([])
 
   const models = CHANNELS[channel].models
   const current = models.find(m => m.id === model) ?? models[0]
@@ -37,22 +39,40 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
   const cost = channel === 'gpt' ? null : (COST[current.id] ?? 3) * outCount
 
   useEffect(() => {
-    const first = CHANNELS[channel].models[0]
-    setModel(first.id)
-    setRes(first.res[0])
+    const preferred = channel === 'jimeng'
+      ? (CHANNELS.jimeng.models.find(m => m.id === defaults?.jimengModel) ?? CHANNELS.jimeng.models[0])
+      : CHANNELS[channel].models[0]
+    setModel(preferred.id)
+    setRes(preferred.res[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel])
 
   const addRefs = (files: FileList | null) => {
     if (!files) return
-    const next = Array.from(files)
-      .slice(0, 4 - refs.length)
-      .map(f => URL.createObjectURL(f))
-    if (next.length > 0) setRefs(prev => [...prev, ...next].slice(0, 4))
+    const incoming = Array.from(files).filter(f => f.type.startsWith('image/') && f.size <= 4 * 1024 * 1024)
+    if (incoming.length < files.length) onToast('已忽略非图片或超过 4MB 的文件')
+    const merged = [...refFiles, ...incoming].slice(0, 4)
+    setRefFiles(merged)
+    setRefPreviews(merged.map(f => URL.createObjectURL(f)))
   }
 
-  const submit = () => {
+  const removeRef = (index: number) => {
+    const next = refFiles.filter((_, i) => i !== index)
+    setRefFiles(next)
+    setRefPreviews(next.map(f => URL.createObjectURL(f)))
+  }
+
+  const readRefs = () => Promise.all(refFiles.map(file => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('读取参考图失败'))
+    reader.readAsDataURL(file)
+  })))
+
+  const submit = async () => {
     if (!prompt.trim() || running) return
-    onGenerate({ prompt: prompt.trim(), channel, model, ratio, resolution: res, count: outCount })
+    const refs = refFiles.length > 0 ? await readRefs() : []
+    onGenerate({ prompt: prompt.trim(), channel, model, ratio, resolution: res, count: outCount, ...(refs.length ? { refs } : {}) })
   }
 
   return (
@@ -157,19 +177,20 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
         </div>
 
         <div className="field">
-          <span className="field-label">参考图 <em>可选 · 最多 4 张</em></span>
+          <span className="field-label">参考图 <em>可选 · 最多 4 张，单张 ≤4MB</em></span>
           <div className="refs">
-            {refs.map((src, i) => (
-              <span className="ref" key={src}>
+            {refPreviews.map((src, i) => (
+              <span className="ref" key={`${src}-${i}`}>
                 <img src={src} alt={`参考图 ${i + 1}`} />
-                <button onClick={() => setRefs(prev => prev.filter(x => x !== src))} aria-label="移除"><X size={12} /></button>
+                <button onClick={() => removeRef(i)} aria-label="移除"><X size={12} /></button>
               </span>
             ))}
-            {refs.length < 4 && (
-              <button className="ref-add" onClick={() => onToast('图生图通道接入后启用')}>
+            {refFiles.length < 4 && (
+              <label className="ref-add">
                 <Upload size={16} />
                 <span>图生图</span>
-              </button>
+                <input type="file" accept="image/*" multiple onChange={e => addRefs(e.target.files)} />
+              </label>
             )}
           </div>
         </div>

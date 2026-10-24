@@ -5,7 +5,7 @@ import Gallery from './pages/Gallery'
 import Compare from './pages/Compare'
 import Inspo from './pages/Inspo'
 import SettingsPage from './pages/Settings'
-import { deleteImage, favoriteImage, generateImage, getAccountStatus, getImages, getJimengStatus, type AccountStatus, type JimengStatus } from './api'
+import { deleteImage, favoriteImage, generateImage, getAccountStatus, getImages, getJimengStatus, getSettings, saveSettings, type AccountStatus, type AppSettings, type JimengStatus } from './api'
 import { CHANNELS, type Channel, type GenRequest, type Img } from './data'
 
 export type Page = 'studio' | 'gallery' | 'compare' | 'inspo' | 'settings'
@@ -28,6 +28,20 @@ const NAV: Array<{ id: Page; label: string; icon: typeof Sparkles; hint: string 
 
 const uid = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2))
 
+const toImg = (row: { id: string; url: string; prompt: string; provider: string; model: string; ratio: string; favorite: boolean; createdAt: number; bytes: number }): Img => ({
+  id: row.id,
+  src: row.url,
+  prompt: row.prompt,
+  channel: (row.provider === 'jimeng' ? 'jimeng' : 'gpt') as Channel,
+  model: row.provider === 'jimeng'
+    ? (CHANNELS.jimeng.models.find(m => m.id === row.model)?.name ?? row.model)
+    : (row.model === 'gpt-image-2.5-flare' ? 'GPT Image 2.5' : row.model),
+  ratio: row.ratio || '1:1',
+  favorite: row.favorite,
+  createdAt: row.createdAt,
+  bytes: row.bytes,
+})
+
 export default function App() {
   const [page, setPage] = useState<Page>('studio')
   const [prompt, setPrompt] = useState('')
@@ -36,6 +50,7 @@ export default function App() {
   const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([])
   const [account, setAccount] = useState<AccountStatus | null>(null)
   const [jimeng, setJimeng] = useState<JimengStatus | null>(null)
+  const [settings, setSettings] = useState<AppSettings | null>(null)
   const toastTimers = useRef<number[]>([])
 
   const refreshAccount = useCallback(() => {
@@ -49,27 +64,16 @@ export default function App() {
   useEffect(() => {
     refreshAccount()
     refreshJimeng()
+    getSettings().then(setSettings).catch(() => {})
   }, [refreshAccount, refreshJimeng])
 
-  useEffect(() => {
-    getImages()
-      .then(res => {
-        setImages(res.images.map(row => ({
-          id: row.id,
-          src: row.url,
-          prompt: row.prompt,
-          channel: (row.provider === 'jimeng' ? 'jimeng' : 'gpt') as Channel,
-          model: row.provider === 'jimeng'
-            ? (CHANNELS.jimeng.models.find(m => m.id === row.model)?.name ?? row.model)
-            : (row.model === 'gpt-image-2.5-flare' ? 'GPT Image 2.5' : row.model),
-          ratio: row.ratio || '1:1',
-          favorite: row.favorite,
-          createdAt: row.createdAt,
-          bytes: row.bytes,
-        })))
-      })
-      .catch(() => {})
+  const loadImages = useCallback(() => {
+    getImages().then(res => setImages(res.images.map(toImg))).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    loadImages()
+  }, [loadImages])
 
   const toast = useCallback((text: string) => {
     const id = uid()
@@ -97,6 +101,7 @@ export default function App() {
         ratio: req.ratio,
         resolution: req.resolution,
         count: req.count,
+        refs: req.refs,
       })
       window.clearInterval(timer)
       const made: Img[] = res.images.map(img => ({
@@ -115,7 +120,7 @@ export default function App() {
       setImages(prev => [...made, ...prev])
       setJobs(prev => prev.map(j => (j.id === id ? { ...j, status: 'done', progress: 100, stage: '完成', results: made } : j)))
       refreshJimeng()
-      toast(`已生成 ${made.length} 张真实图片`)
+      toast(`已生成 ${made.length} 张真实图片${req.refs?.length ? '（图生图）' : ''}`)
     } catch (error) {
       window.clearInterval(timer)
       const message = error instanceof Error ? error.message : String(error)
@@ -215,10 +220,17 @@ export default function App() {
               onGenerate={generate}
               onToast={toast}
               onOpenGallery={() => setPage('gallery')}
+              defaults={settings ?? undefined}
             />
           )}
           {page === 'gallery' && (
-            <Gallery images={images} onToast={toast} onFavorite={toggleFavorite} onDelete={removeImage} />
+            <Gallery
+              images={images}
+              onToast={toast}
+              onFavorite={toggleFavorite}
+              onDelete={removeImage}
+              onDeleted={ids => setImages(prev => prev.filter(img => !ids.includes(img.id)))}
+            />
           )}
           {page === 'compare' && (
             <Compare
@@ -243,7 +255,25 @@ export default function App() {
             />
           )}
           {page === 'settings' && (
-            <SettingsPage images={images} onToast={toast} account={account} onRefreshAccount={refreshAccount} jimeng={jimeng} onRefreshJimeng={refreshJimeng} />
+            <SettingsPage
+              images={images}
+              onToast={toast}
+              account={account}
+              onRefreshAccount={refreshAccount}
+              jimeng={jimeng}
+              onRefreshJimeng={refreshJimeng}
+              settings={settings}
+              onRefreshImages={loadImages}
+              onSaveSettings={async next => {
+                try {
+                  const saved = await saveSettings(next)
+                  setSettings(saved)
+                  toast('默认参数已保存')
+                } catch (error) {
+                  toast(error instanceof Error ? error.message : String(error))
+                }
+              }}
+            />
           )}
         </div>
       </main>

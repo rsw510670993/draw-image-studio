@@ -88,6 +88,24 @@ const writeAccount = (provider, blob) => {
 }
 const deleteAccount = provider => db.prepare('DELETE FROM accounts WHERE provider = ?').run(provider)
 
+/* ---------- settings ---------- */
+const DEFAULT_SETTINGS = { ratio: '1:1', jimengModel: 'jimeng-image-5.0-lite', count: 2 }
+
+function readMeta(key) {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key)
+  if (!row) return null
+  try { return JSON.parse(row.value) } catch { return null }
+}
+
+function writeMeta(key, value) {
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+    .run(key, JSON.stringify(value))
+}
+
+function getSettings() {
+  return { ...DEFAULT_SETTINGS, ...(readMeta('settings') ?? {}) }
+}
+
 /* ---------- chatgpt / codex subscription ---------- */
 const CODEX = {
   clientId: 'app_EMoamEEZ73f0CkXaXp7hrann',
@@ -261,7 +279,7 @@ function saveImageBuffer(buffer, meta) {
   return { id, url: `/draw/media/${year}/${month}/${id}.${ext}`, bytes: buffer.length, ratio: meta.ratio }
 }
 
-async function generateImage({ prompt, ratio, size, quality }) {
+async function generateImage({ prompt, ratio, size, quality, referenceImages = [] }) {
   let blob = readAccount('chatgpt')
   if (!blob) throw new Error('尚未登录 ChatGPT，请先在设置里登录')
   if (typeof prompt !== 'string' || prompt.trim().length === 0) throw new Error('提示词不能为空')
@@ -277,7 +295,8 @@ async function generateImage({ prompt, ratio, size, quality }) {
     '9:16': '超长竖向构图',
   }
   const wirePrompt = `${prompt.trim()}\n\n输出图片的画布宽高比必须为${ratio}，${RATIO_HINT[ratio] ?? ''}，完整画面铺满画布。`
-  const res = await fetch(CODEX.imageUrl, {
+  const hasRefs = referenceImages.length > 0
+  const res = await fetch(hasRefs ? CODEX.imageEditUrl : CODEX.imageUrl, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${blob.accessToken}`,
@@ -290,6 +309,7 @@ async function generateImage({ prompt, ratio, size, quality }) {
       prompt: wirePrompt,
       model: CODEX.imageModel,
       size: wireSize,
+      ...(hasRefs ? { images: referenceImages.map(imageUrl => ({ image_url: imageUrl })) } : {}),
       ...(quality ? { quality } : {}),
     }),
   })
@@ -563,7 +583,7 @@ async function jimengQrCancel(sessionId) {
   return { ok: true }
 }
 
-async function generateJimeng({ prompt, model, ratio, resolution, count }) {
+async function generateJimeng({ prompt, model, ratio, resolution, count, referenceImages = [] }) {
   const blob = readAccount('jimeng')
   if (!blob?.sessionid) throw new Error('尚未接入即梦，请先在设置里保存 sessionid')
   if (typeof prompt !== 'string' || prompt.trim().length === 0) throw new Error('提示词不能为空')
@@ -574,6 +594,7 @@ async function generateJimeng({ prompt, model, ratio, resolution, count }) {
     ratio: ratio || '1:1',
     resolution: resolution || '2k',
     n: Math.min(Math.max(Number(count) || 1, 1), 8),
+    ...(referenceImages.length > 0 ? { filePaths: referenceImages } : {}),
   }
   const res = await fetch(`${JIMENG_BASE}/v1/images/generations`, {
     method: 'POST',
@@ -632,8 +653,8 @@ function readBody(req) {
     const chunks = []
     req.on('data', chunk => {
       size += chunk.length
-      if (size > 1_000_000) {
-        reject(new Error('请求体过大'))
+      if (size > 20 * 1024 * 1024) {
+        reject(new Error('请求体过大（上限 20MB）'))
         req.destroy()
         return
       }
@@ -680,6 +701,22 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'GET' && route === '/account/status') {
       return sendJson(res, 200, accountStatus())
+    }
+
+    if (method === 'GET' && route === '/settings') {
+      return sendJson(res, 200, getSettings())
+    }
+
+    if (method === 'POST' && route === '/settings') {
+      const body = await readBody(req)
+      const incoming = body?.settings ?? body ?? {}
+      const next = {
+        ratio: typeof incoming.ratio === 'string' ? incoming.ratio : DEFAULT_SETTINGS.ratio,
+        jimengModel: typeof incoming.jimengModel === 'string' ? incoming.jimengModel : DEFAULT_SETTINGS.jimengModel,
+        count: Math.min(Math.max(Number(incoming.count) || DEFAULT_SETTINGS.count, 1), 4),
+      }
+      writeMeta('settings', next)
+      return sendJson(res, 200, next)
     }
 
     if (method === 'GET' && route === '/account/jimeng/status') {
@@ -737,6 +774,9 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && route === '/generate') {
       const body = await readBody(req)
+      const refs = Array.isArray(body.refs)
+        ? body.refs.filter(r => typeof r === 'string' && r.startsWith('data:image/')).slice(0, 4)
+        : []
       if (body.channel === 'jimeng') {
         const result = await generateJimeng({
           prompt: body.prompt,
@@ -744,6 +784,7 @@ const server = http.createServer(async (req, res) => {
           ratio: typeof body.ratio === 'string' ? body.ratio : '1:1',
           resolution: typeof body.resolution === 'string' ? body.resolution : '2k',
           count: Number(body.count) || 1,
+          referenceImages: refs,
         })
         return sendJson(res, 200, result)
       }
@@ -752,6 +793,7 @@ const server = http.createServer(async (req, res) => {
         ratio: typeof body.ratio === 'string' ? body.ratio : '1:1',
         size: typeof body.size === 'string' ? body.size : undefined,
         quality: typeof body.quality === 'string' ? body.quality : undefined,
+        referenceImages: refs,
       })
       return sendJson(res, 200, result)
     }
@@ -794,6 +836,36 @@ const server = http.createServer(async (req, res) => {
     if (method === 'GET' && route === '/images') {
       const limit = Math.min(Number(url.searchParams.get('limit') ?? 60) || 60, 200)
       return sendJson(res, 200, { images: listImages(limit) })
+    }
+
+    if (method === 'POST' && route === '/images/delete-batch') {
+      const body = await readBody(req)
+      const ids = Array.isArray(body.ids) ? body.ids.map(String) : []
+      const stmt = db.prepare('UPDATE images SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
+      let removed = 0
+      const now = Date.now()
+      for (const id of ids) removed += stmt.run(now, id).changes
+      return sendJson(res, 200, { ok: true, removed })
+    }
+
+    if (method === 'POST' && route === '/images/cleanup') {
+      const now = Date.now()
+      const cutoff = now - 30 * 24 * 3600 * 1000
+      const soft = db.prepare('UPDATE images SET deleted_at = ? WHERE deleted_at IS NULL AND favorite = 0').run(now).changes
+      const old = db.prepare('SELECT id, path FROM images WHERE deleted_at IS NOT NULL AND deleted_at < ?').all(cutoff)
+      let purged = 0
+      for (const row of old) {
+        try { fs.unlinkSync(path.join(DATA, 'media', row.path)) } catch {}
+        db.prepare('DELETE FROM images WHERE id = ?').run(row.id)
+        purged += 1
+      }
+      return sendJson(res, 200, { ok: true, removed: soft, purged })
+    }
+
+    if (method === 'GET' && route === '/storage') {
+      const live = db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM images WHERE deleted_at IS NULL').get()
+      const trash = db.prepare('SELECT COUNT(*) AS count, COALESCE(SUM(bytes), 0) AS bytes FROM images WHERE deleted_at IS NOT NULL').get()
+      return sendJson(res, 200, { count: live.count, bytes: live.bytes, trashCount: trash.count, trashBytes: trash.bytes })
     }
 
     if (method === 'POST' && route === '/images/favorite') {

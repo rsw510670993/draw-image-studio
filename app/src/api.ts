@@ -66,6 +66,7 @@ export const generateImage = (body: {
   ratio: string
   resolution?: string
   count?: number
+  refs?: string[]
 }) =>
   api<{ images: Array<{ id: string; url: string; bytes: number; ratio: string }> }>('/generate', {
     method: 'POST',
@@ -153,3 +154,23 @@ export const pollJimengQr = (session: string) =>
 
 export const cancelJimengQr = (sessionId: string) =>
   api<{ ok: boolean }>('/account/jimeng/qr/cancel', { method: 'POST', body: JSON.stringify({ sessionId }) })
+
+export interface AppSettings {
+  ratio: string
+  jimengModel: string
+  count: number
+}
+
+export const getSettings = () => api<AppSettings>('/settings')
+
+export const saveSettings = (settings: AppSettings) =>
+  api<AppSettings>('/settings', { method: 'POST', body: JSON.stringify({ settings }) })
+
+export const deleteImages = (ids: string[]) =>
+  api<{ ok: boolean; removed: number }>('/images/delete-batch', { method: 'POST', body: JSON.stringify({ ids }) })
+
+export const cleanupImages = () =>
+  api<{ ok: boolean; removed: number; purged: number }>('/images/cleanup', { method: 'POST' })
+
+export const getStorage = () =>
+  api<{ count: number; bytes: number; trashCount: number; trashBytes: number }>('/storage')

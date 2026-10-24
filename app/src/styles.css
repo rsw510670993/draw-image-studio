@@ -726,3 +726,12 @@ select { padding-right: 30px; }
 }
 
 .compare-stale { margin: 0; color: #f0c26b; font-size: 11.5px; line-height: 1.6; }
+
+/* ---------- gallery batch select ---------- */
+.select-bar { display: flex; align-items: center; gap: 8px; }
+.pick { position: absolute; top: 10px; left: 10px; z-index: 2; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, 0.45); background: rgba(10, 12, 17, 0.65); color: #fff; font-size: 12px; backdrop-filter: blur(4px); }
+.pick.on { background: var(--accent); border-color: var(--accent); }
+.tile.picked { outline: 2px solid rgba(124, 140, 255, 0.75); outline-offset: -2px; }
+@media (max-width: 640px) {
+  .select-bar { margin-left: 0; flex-wrap: wrap; }
+}
