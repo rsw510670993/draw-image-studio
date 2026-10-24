@@ -4,6 +4,7 @@ import type { Img } from '../data'
 import { CHANNELS } from '../data'
 import {
   cancelJimengQr,
+  cleanupImages,
   completeChatgptLogin,
   loginJimeng,
   logoutChatgpt,

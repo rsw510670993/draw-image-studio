@@ -26,7 +26,7 @@ const NAV: Array<{ id: Page; label: string; icon: typeof Sparkles; hint: string 
   { id: 'settings', label: '设置', icon: SettingsIcon, hint: '通道、默认参数与存储' },
 ]
 
-const uid = () => (globalThis.crypto?.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2))
+const uid = () => crypto.randomUUID()
 
 const toImg = (row: { id: string; url: string; prompt: string; provider: string; model: string; ratio: string; favorite: boolean; createdAt: number; bytes: number }): Img => ({
   id: row.id,
