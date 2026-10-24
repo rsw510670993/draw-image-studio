@@ -3,12 +3,15 @@ import { CheckCircle2, Copy, ExternalLink, HardDrive, KeyRound, Loader2, LogOut,
 import type { Img } from '../data'
 import {
   completeChatgptLogin,
+  loginJimeng,
   logoutChatgpt,
+  logoutJimeng,
   pollChatgptDevice,
   startChatgptDevice,
   startChatgptLogin,
   type AccountStatus,
   type DeviceStart,
+  type JimengStatus,
   type LoginStart,
 } from '../api'
 
@@ -17,17 +20,22 @@ interface Props {
   onToast: (text: string) => void
   account: AccountStatus | null
   onRefreshAccount: () => void
+  jimeng: JimengStatus | null
+  onRefreshJimeng: () => void
 }
 
 const fmt = (ts?: number) =>
   ts === undefined ? '—' : new Date(ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 
-export default function SettingsPage({ images, onToast, account, onRefreshAccount }: Props) {
+export default function SettingsPage({ images, onToast, account, onRefreshAccount, jimeng, onRefreshJimeng }: Props) {
   const [device, setDevice] = useState<DeviceStart | null>(null)
   const [pending, setPending] = useState<LoginStart | null>(null)
   const [callback, setCallback] = useState('')
   const [busy, setBusy] = useState<'start' | 'complete' | 'manual' | null>(null)
   const [error, setError] = useState('')
+  const [jimengInput, setJimengInput] = useState('')
+  const [jimengBusy, setJimengBusy] = useState(false)
+  const [jimengError, setJimengError] = useState('')
 
   const bytes = images.reduce((sum, img) => sum + (img.bytes ?? 0), 0)
   const usedGb = bytes / 1e9
@@ -136,6 +144,32 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
     }
   }
 
+  const saveJimeng = async () => {
+    if (!jimengInput.trim()) return
+    setJimengBusy(true)
+    setJimengError('')
+    try {
+      const res = await loginJimeng(jimengInput.trim())
+      onToast(typeof res.points === 'number' ? `即梦已接入 · 剩余 ${res.points} 积分` : '即梦已接入')
+      setJimengInput('')
+      onRefreshJimeng()
+    } catch (err) {
+      setJimengError((err as Error).message)
+    } finally {
+      setJimengBusy(false)
+    }
+  }
+
+  const signOutJimeng = async () => {
+    try {
+      await logoutJimeng()
+      onRefreshJimeng()
+      onToast('已断开即梦账号')
+    } catch (err) {
+      onToast((err as Error).message)
+    }
+  }
+
   return (
     <div className="settings">
       <section className="panel settings-card">
@@ -151,16 +185,41 @@ export default function SettingsPage({ images, onToast, account, onRefreshAccoun
             <div className="channel-top">
               <span className="seg-dot jimeng" />
               <b>即梦 · 订阅</b>
-              <span className="state ok"><CheckCircle2 size={13} /> 演示</span>
+              <span className={jimeng?.connected ? 'state ok' : 'state'}>
+                {jimeng?.connected ? <><CheckCircle2 size={13} /> 已连接</> : <><RefreshCw size={13} /> 未接入</>}
+              </span>
             </div>
             <dl className="channel-meta">
-              <div><dt>账号</dt><dd>待接入 sessionid</dd></div>
-              <div><dt>积分</dt><dd>66 / 66（每日赠送）</dd></div>
-              <div><dt>会话</dt><dd>预计 6 天后过期</dd></div>
+              <div><dt>账号</dt><dd>{jimeng?.connected ? (jimeng.membership ?? 'sessionid') : '—'}</dd></div>
+              <div><dt>积分</dt><dd>{jimeng?.connected ? `${jimeng.points ?? '—'}（赠送 ${jimeng.giftPoints ?? '—'}）` : '—'}</dd></div>
+              <div><dt>通道</dt><dd>jimeng-free-api · Seedream 5.0</dd></div>
             </dl>
-            <button className="btn-soft" onClick={() => onToast('即梦通道接入后启用')}>
-              <KeyRound size={14} /> 接入即梦
-            </button>
+
+            {jimeng?.connected ? (
+              <div className="login-connected">
+                <span className="muted">{jimeng.error ?? 'sessionid 已加密保存，失效时重新粘贴即可'}</span>
+                <button className="btn-soft" onClick={signOutJimeng}><LogOut size={14} /> 断开</button>
+              </div>
+            ) : (
+              <>
+                <textarea
+                  className="login-textarea"
+                  rows={2}
+                  value={jimengInput}
+                  onChange={e => setJimengInput(e.target.value)}
+                  placeholder="粘贴 sessionid 的值，或整段 sessionid=..."
+                />
+                <div className="login-actions">
+                  <button className="btn-soft" onClick={saveJimeng} disabled={!jimengInput.trim() || jimengBusy}>
+                    {jimengBusy ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} 保存并校验
+                  </button>
+                </div>
+                <p className="login-hint">
+                  获取方式：浏览器登录 jimeng.jianying.com → F12 → Application → Cookies → 复制 <code>sessionid</code> 的值。
+                </p>
+                {(jimengError || jimeng?.error) && <p className="login-error">{jimengError || jimeng?.error}</p>}
+              </>
+            )}
           </div>
 
           <div className="channel-box">

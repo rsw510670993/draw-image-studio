@@ -106,6 +106,8 @@ const DEVICE = {
   redirectUri: 'https://auth.openai.com/deviceauth/callback',
 }
 
+const JIMENG_BASE = 'http://127.0.0.1:30301'
+
 const b64url = buf => buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 
 const pendings = new Map()
@@ -417,6 +419,95 @@ async function devicePoll({ deviceAuthId, userCode }) {
   return { status: 'connected', email: blob.email, expiresAt: blob.expiresAt }
 }
 
+function normalizeSession(input) {
+  let value = String(input ?? '').trim()
+  if (!value) throw new Error('sessionid 不能为空')
+  if (/^cookie:/i.test(value)) value = value.slice(7).trim()
+  const match = value.match(/sessionid=([^;\s]+)/i)
+  if (match) value = match[1].replace(/^["']|["']$/g, '')
+  return value
+}
+
+async function fetchJimengStatus(sessionid) {
+  const res = await fetch(`${JIMENG_BASE}/v1/account/status`, {
+    headers: { authorization: `Bearer ${sessionid}`, accept: 'application/json' },
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const detail = json?.message ?? json?.error ?? `HTTP ${res.status}`
+    throw new Error(`即梦 sessionid 校验失败：${detail}`)
+  }
+  if (typeof json?.code === 'number' && json.code !== 0) {
+    throw new Error(`即梦 sessionid 校验失败：${json.message ?? `code ${json.code}`}`)
+  }
+  const status = json?.account?.status ?? {}
+  if (typeof status.totalCredit !== 'number') {
+    throw new Error('即梦 sessionid 校验失败：返回数据缺少积分信息，可能已过期')
+  }
+  return {
+    points: typeof status.totalCredit === 'number' ? status.totalCredit : null,
+    giftPoints: typeof status.giftCredit === 'number' ? status.giftCredit : null,
+    vipPoints: typeof status.vipCredit === 'number' ? status.vipCredit : null,
+    membership: status.membership ?? null,
+  }
+}
+
+async function jimengStatus() {
+  const blob = readAccount('jimeng')
+  if (!blob?.sessionid) return { provider: 'jimeng', connected: false }
+  try {
+    const info = await fetchJimengStatus(blob.sessionid)
+    return { provider: 'jimeng', connected: true, label: blob.label ?? '', ...info }
+  } catch (error) {
+    return { provider: 'jimeng', connected: false, label: blob.label ?? '', error: error.message }
+  }
+}
+
+async function jimengLogin(input) {
+  const sessionid = normalizeSession(input)
+  const info = await fetchJimengStatus(sessionid)
+  writeAccount('jimeng', { sessionid, label: info.membership ?? '即梦账号', updatedAt: Date.now() })
+  return { provider: 'jimeng', connected: true, ...info }
+}
+
+async function generateJimeng({ prompt, model, ratio, resolution, count }) {
+  const blob = readAccount('jimeng')
+  if (!blob?.sessionid) throw new Error('尚未接入即梦，请先在设置里保存 sessionid')
+  if (typeof prompt !== 'string' || prompt.trim().length === 0) throw new Error('提示词不能为空')
+  const wireModel = model || 'jimeng-image-5.0-lite'
+  const body = {
+    model: wireModel,
+    prompt: prompt.trim(),
+    ratio: ratio || '1:1',
+    resolution: resolution || '2k',
+    n: Math.min(Math.max(Number(count) || 1, 1), 8),
+  }
+  const res = await fetch(`${JIMENG_BASE}/v1/images/generations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${blob.sessionid}` },
+    body: JSON.stringify(body),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const detail = json?.message ?? json?.error?.message ?? json?.error ?? `HTTP ${res.status}`
+    throw new Error(`即梦生成失败：${detail}`)
+  }
+  const rows = Array.isArray(json.data) ? json.data : []
+  const images = []
+  for (const row of rows) {
+    if (typeof row?.url === 'string') {
+      const media = await fetch(row.url)
+      if (!media.ok) continue
+      const buffer = Buffer.from(await media.arrayBuffer())
+      images.push(saveImageBuffer(buffer, { provider: 'jimeng', model: wireModel, prompt: prompt.trim(), ratio: body.ratio }))
+    } else if (typeof row?.b64_json === 'string' && row.b64_json.length > 0) {
+      images.push(saveImageBuffer(Buffer.from(row.b64_json, 'base64'), { provider: 'jimeng', model: wireModel, prompt: prompt.trim(), ratio: body.ratio }))
+    }
+  }
+  if (images.length === 0) throw new Error('即梦未返回图片，请检查积分或账号状态')
+  return { images }
+}
+
 function accountStatus() {
   const blob = readAccount('chatgpt')
   if (!blob) return { provider: 'chatgpt', connected: false }
@@ -488,6 +579,20 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, accountStatus())
     }
 
+    if (method === 'GET' && route === '/account/jimeng/status') {
+      return sendJson(res, 200, await jimengStatus())
+    }
+
+    if (method === 'POST' && route === '/account/jimeng/login') {
+      const body = await readBody(req)
+      return sendJson(res, 200, await jimengLogin(body.sessionid))
+    }
+
+    if (method === 'POST' && route === '/account/jimeng/logout') {
+      deleteAccount('jimeng')
+      return sendJson(res, 200, { ok: true })
+    }
+
     if (method === 'POST' && route === '/account/chatgpt/device/start') {
       return sendJson(res, 200, await deviceStart())
     }
@@ -516,6 +621,16 @@ const server = http.createServer(async (req, res) => {
 
     if (method === 'POST' && route === '/generate') {
       const body = await readBody(req)
+      if (body.channel === 'jimeng') {
+        const result = await generateJimeng({
+          prompt: body.prompt,
+          model: typeof body.model === 'string' ? body.model : undefined,
+          ratio: typeof body.ratio === 'string' ? body.ratio : '1:1',
+          resolution: typeof body.resolution === 'string' ? body.resolution : '2k',
+          count: Number(body.count) || 1,
+        })
+        return sendJson(res, 200, result)
+      }
       const result = await generateImage({
         prompt: body.prompt,
         ratio: typeof body.ratio === 'string' ? body.ratio : '1:1',

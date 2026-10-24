@@ -5,3 +5,4 @@ data/
 docs/preview/
 *.log
 .DS_Store
+vendor/

@@ -59,7 +59,14 @@ export interface ApiImage {
 
 export const getImages = () => api<{ images: ApiImage[] }>('/images?limit=120')
 
-export const generateImage = (body: { prompt: string; ratio: string }) =>
+export const generateImage = (body: {
+  prompt: string
+  channel: 'chatgpt' | 'jimeng'
+  model?: string
+  ratio: string
+  resolution?: string
+  count?: number
+}) =>
   api<{ images: Array<{ id: string; url: string; bytes: number; ratio: string }> }>('/generate', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -112,3 +119,22 @@ export const pollChatgptDevice = (deviceAuthId: string, userCode: string) =>
     method: 'POST',
     body: JSON.stringify({ deviceAuthId, userCode }),
   })
+
+
+export interface JimengStatus {
+  provider: 'jimeng'
+  connected: boolean
+  label?: string
+  points?: number | null
+  giftPoints?: number | null
+  vipPoints?: number | null
+  membership?: string | null
+  error?: string
+}
+
+export const getJimengStatus = () => api<JimengStatus>('/account/jimeng/status')
+
+export const loginJimeng = (sessionid: string) =>
+  api<JimengStatus>('/account/jimeng/login', { method: 'POST', body: JSON.stringify({ sessionid }) })
+
+export const logoutJimeng = () => api<{ ok: boolean }>('/account/jimeng/logout', { method: 'POST' })

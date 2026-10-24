@@ -34,7 +34,7 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
   const failed = job?.status === 'failed'
   const results = job?.status === 'done' ? job.results : []
   const outCount = channel === 'gpt' ? 1 : count
-  const cost = channel === 'gpt' ? null : (COST[current.id] ?? 3) * count
+  const cost = channel === 'gpt' ? null : (COST[current.id] ?? 3) * outCount
 
   useEffect(() => {
     const first = CHANNELS[channel].models[0]
@@ -52,10 +52,6 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
 
   const submit = () => {
     if (!prompt.trim() || running) return
-    if (channel === 'jimeng') {
-      onToast('即梦通道待接入，先用 ChatGPT 订阅通道')
-      return
-    }
     onGenerate({ prompt: prompt.trim(), channel, model, ratio, resolution: res, count: outCount })
   }
 
@@ -73,7 +69,6 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
             >
               <span className={`seg-dot ${ch}`} />
               {CHANNELS[ch].short}
-              {ch === 'jimeng' && <em className="seg-flag">待接入</em>}
             </button>
           ))}
         </div>
@@ -179,11 +174,11 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
           </div>
         </div>
 
-        <button className="btn-primary" onClick={submit} disabled={running || !prompt.trim() || channel === 'jimeng'}>
+        <button className="btn-primary" onClick={submit} disabled={running || !prompt.trim()}>
           {running ? <><Loader2 size={17} className="spin" /> 生成中…</> : <><Sparkles size={17} /> 生成 {outCount} 张</>}
         </button>
         <p className="cost-hint">
-          {channel === 'jimeng' ? '即梦通道待接入' : '订阅额度 · 通常 30–60 秒出图'}
+          {channel === 'jimeng' ? `预计消耗 ${cost} 积分（每日赠送 66）` : '订阅额度 · 通常 30–60 秒出图'}
         </p>
       </section>
 

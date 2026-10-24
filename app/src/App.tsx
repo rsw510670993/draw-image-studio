@@ -5,8 +5,8 @@ import Gallery from './pages/Gallery'
 import Compare from './pages/Compare'
 import Inspo from './pages/Inspo'
 import SettingsPage from './pages/Settings'
-import { deleteImage, favoriteImage, generateImage, getAccountStatus, getImages, type AccountStatus } from './api'
-import { type Channel, type GenRequest, type Img } from './data'
+import { deleteImage, favoriteImage, generateImage, getAccountStatus, getImages, getJimengStatus, type AccountStatus, type JimengStatus } from './api'
+import { CHANNELS, type Channel, type GenRequest, type Img } from './data'
 
 export type Page = 'studio' | 'gallery' | 'compare' | 'inspo' | 'settings'
 
@@ -35,15 +35,21 @@ export default function App() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [toasts, setToasts] = useState<Array<{ id: string; text: string }>>([])
   const [account, setAccount] = useState<AccountStatus | null>(null)
+  const [jimeng, setJimeng] = useState<JimengStatus | null>(null)
   const toastTimers = useRef<number[]>([])
 
   const refreshAccount = useCallback(() => {
     getAccountStatus().then(setAccount).catch(() => setAccount(null))
   }, [])
 
+  const refreshJimeng = useCallback(() => {
+    getJimengStatus().then(setJimeng).catch(() => setJimeng(null))
+  }, [])
+
   useEffect(() => {
     refreshAccount()
-  }, [refreshAccount])
+    refreshJimeng()
+  }, [refreshAccount, refreshJimeng])
 
   useEffect(() => {
     getImages()
@@ -82,14 +88,23 @@ export default function App() {
     }, 1400)
 
     try {
-      const res = await generateImage({ prompt: req.prompt, ratio: req.ratio })
+      const res = await generateImage({
+        prompt: req.prompt,
+        channel: req.channel === 'jimeng' ? 'jimeng' : 'chatgpt',
+        model: req.model,
+        ratio: req.ratio,
+        resolution: req.resolution,
+        count: req.count,
+      })
       window.clearInterval(timer)
       const made: Img[] = res.images.map(img => ({
         id: img.id,
         src: img.url,
         prompt: req.prompt,
-        channel: 'gpt' as Channel,
-        model: 'GPT Image 2.5',
+        channel: (req.channel === 'jimeng' ? 'jimeng' : 'gpt') as Channel,
+        model: req.channel === 'jimeng'
+          ? (CHANNELS.jimeng.models.find(m => m.id === req.model)?.name ?? 'Seedream')
+          : 'GPT Image 2.5',
         ratio: img.ratio || req.ratio,
         favorite: false,
         createdAt: Date.now(),
@@ -172,7 +187,9 @@ export default function App() {
 
           <div className="top-right">
             <div className="pills">
-              <span className="pill idle"><i />即梦 待接入</span>
+              <span className={jimeng?.connected ? 'pill ok' : 'pill idle'}>
+                <i />{jimeng?.connected ? `即梦 · ${jimeng.points ?? '?'} 积分` : '即梦 未接入'}
+              </span>
               {account?.connected ? (
                 <span className="pill ok" title={account.email}>
                   <i />ChatGPT · {account.email?.split('@')[0] ?? '已连接'}
@@ -212,7 +229,7 @@ export default function App() {
             />
           )}
           {page === 'settings' && (
-            <SettingsPage images={images} onToast={toast} account={account} onRefreshAccount={refreshAccount} />
+            <SettingsPage images={images} onToast={toast} account={account} onRefreshAccount={refreshAccount} jimeng={jimeng} onRefreshJimeng={refreshJimeng} />
           )}
         </div>
       </main>
