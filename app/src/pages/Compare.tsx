@@ -39,7 +39,7 @@ export default function Compare({ onToast, account, jimeng, onGenerated, onOpenG
     setJmSide({ status: 'running' })
     setRunPrompt(text)
     const t0 = performance.now()
-    const timed = (task: Promise<{ images: Array<{ id: string; url: string; bytes: number; ratio: string }> }>) =>
+    const timed = (task: Promise<{ images: Array<{ id: string; url: string; bytes: number; ratio: string; width?: number | null; height?: number | null }> }>) =>
       task.then(
         res => ({ ok: true as const, res, ms: Math.round(performance.now() - t0) }),
         err => ({ ok: false as const, err, ms: Math.round(performance.now() - t0) }),
@@ -72,6 +72,8 @@ export default function Compare({ onToast, account, jimeng, onGenerated, onOpenG
         favorite: false,
         createdAt: Date.now(),
         bytes: row.bytes,
+        width: row.width ?? null,
+        height: row.height ?? null,
       }
       setGptSide({ status: 'done', image, ms: gptOut.ms })
       onGenerated(image)
@@ -91,6 +93,8 @@ export default function Compare({ onToast, account, jimeng, onGenerated, onOpenG
         favorite: false,
         createdAt: Date.now(),
         bytes: row.bytes,
+        width: row.width ?? null,
+        height: row.height ?? null,
       }
       setJmSide({ status: 'done', image, ms: jmOut.ms })
       onGenerated(image)

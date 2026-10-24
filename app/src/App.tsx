@@ -29,7 +29,7 @@ const NAV: Array<{ id: Page; label: string; icon: typeof Sparkles; hint: string 
 
 const uid = () => crypto.randomUUID()
 
-const toImg = (row: { id: string; url: string; prompt: string; provider: string; model: string; ratio: string; favorite: boolean; createdAt: number; bytes: number }): Img => ({
+const toImg = (row: { id: string; url: string; prompt: string; provider: string; model: string; ratio: string; favorite: boolean; createdAt: number; bytes: number; width?: number | null; height?: number | null }): Img => ({
   id: row.id,
   src: row.url,
   prompt: row.prompt,
@@ -41,6 +41,8 @@ const toImg = (row: { id: string; url: string; prompt: string; provider: string;
   favorite: row.favorite,
   createdAt: row.createdAt,
   bytes: row.bytes,
+  width: row.width ?? null,
+  height: row.height ?? null,
 })
 
 export default function App() {
@@ -124,6 +126,8 @@ export default function App() {
         favorite: false,
         createdAt: Date.now(),
         bytes: img.bytes,
+        width: img.width ?? null,
+        height: img.height ?? null,
       }))
       setImages(prev => [...made, ...prev])
       setJobs(prev => prev.map(j => (j.id === id ? { ...j, status: 'done', progress: 100, stage: '完成', results: made } : j)))

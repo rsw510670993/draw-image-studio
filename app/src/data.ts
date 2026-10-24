@@ -40,6 +40,8 @@ export interface Img {
   favorite: boolean
   createdAt: number
   bytes?: number
+  width?: number | null
+  height?: number | null
 }
 
 export interface GenRequest {

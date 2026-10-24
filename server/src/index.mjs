@@ -77,6 +77,10 @@ db.exec(`
   );
 `)
 
+const imageCols = db.prepare('PRAGMA table_info(images)').all().map(col => col.name)
+if (!imageCols.includes('width')) db.exec('ALTER TABLE images ADD COLUMN width INTEGER')
+if (!imageCols.includes('height')) db.exec('ALTER TABLE images ADD COLUMN height INTEGER')
+
 const readAccount = provider => {
   const row = db.prepare('SELECT payload, updated_at FROM accounts WHERE provider = ?').get(provider)
   if (!row) return null
@@ -352,6 +356,26 @@ function imageExt(buffer) {
   return 'png'
 }
 
+function imageDimensions(buffer) {
+  if (buffer.length > 24 && buffer[0] === 0x89 && buffer[1] === 0x50) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) }
+  }
+  if (buffer.length > 4 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let index = 2
+    while (index + 9 < buffer.length) {
+      if (buffer[index] !== 0xff) { index += 1; continue }
+      const marker = buffer[index + 1]
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { index += 2; continue }
+      const length = buffer.readUInt16BE(index + 2)
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { height: buffer.readUInt16BE(index + 5), width: buffer.readUInt16BE(index + 7) }
+      }
+      index += 2 + length
+    }
+  }
+  return { width: null, height: null }
+}
+
 function saveImageBuffer(buffer, meta) {
   const now = new Date()
   const year = String(now.getFullYear())
@@ -360,10 +384,11 @@ function saveImageBuffer(buffer, meta) {
   fs.mkdirSync(dir, { recursive: true })
   const id = crypto.randomUUID()
   const ext = imageExt(buffer)
+  const { width, height } = imageDimensions(buffer)
   fs.writeFileSync(path.join(dir, `${id}.${ext}`), buffer)
-  db.prepare('INSERT INTO images (id, provider, model, prompt, ratio, path, bytes, created_at, favorite) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)')
-    .run(id, meta.provider, meta.model, meta.prompt, meta.ratio ?? '', path.join(year, month, `${id}.${ext}`), buffer.length, Date.now())
-  return { id, url: `/draw/media/${year}/${month}/${id}.${ext}`, bytes: buffer.length, ratio: meta.ratio }
+  db.prepare('INSERT INTO images (id, provider, model, prompt, ratio, path, bytes, created_at, favorite, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)')
+    .run(id, meta.provider, meta.model, meta.prompt, meta.ratio ?? '', path.join(year, month, `${id}.${ext}`), buffer.length, Date.now(), width, height)
+  return { id, url: `/draw/media/${year}/${month}/${id}.${ext}`, bytes: buffer.length, ratio: meta.ratio, width, height }
 }
 
 async function generateImage({ prompt, ratio, size, quality, referenceImages = [] }) {
@@ -461,8 +486,8 @@ function savePrompt({ id, title, text, tags }) {
 function listImages(limit = 60, options = {}) {
   const trash = options.trash === true
   const rows = trash
-    ? db.prepare('SELECT id, provider, model, prompt, ratio, path, bytes, created_at, favorite, deleted_at FROM images WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT ?').all(limit)
-    : db.prepare('SELECT id, provider, model, prompt, ratio, path, bytes, created_at, favorite, deleted_at FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?').all(limit)
+    ? db.prepare('SELECT id, provider, model, prompt, ratio, path, bytes, created_at, favorite, deleted_at, width, height FROM images WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT ?').all(limit)
+    : db.prepare('SELECT id, provider, model, prompt, ratio, path, bytes, created_at, favorite, deleted_at, width, height FROM images WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?').all(limit)
   return rows.map(row => ({
     id: row.id,
     provider: row.provider,
@@ -473,6 +498,8 @@ function listImages(limit = 60, options = {}) {
     favorite: row.favorite === 1,
     createdAt: row.created_at,
     deletedAt: row.deleted_at ?? null,
+    width: row.width ?? null,
+    height: row.height ?? null,
     url: `/draw/media/${row.path}`,
   }))
 }

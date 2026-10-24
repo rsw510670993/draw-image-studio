@@ -355,7 +355,7 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
                 <img src={img.src} alt={img.prompt} />
                 <figcaption>
                   <span>{img.prompt}</span>
-                  <span className="result-meta">{img.ratio} · {img.model}</span>
+                  <span className="result-meta">{img.width && img.height ? `${img.width}×${img.height} · ` : ''}{img.ratio} · {img.model}</span>
                 </figcaption>
                 <div className="result-actions">
                   <button onClick={() => onToast('下载接入后启用')} title="下载"><Download size={15} /></button>

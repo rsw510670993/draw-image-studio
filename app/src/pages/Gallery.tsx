@@ -192,6 +192,7 @@ export default function Gallery({ images, onToast, onFavorite, onDelete, onDelet
               <p className="modal-prompt">{selected.prompt}</p>
               <dl className="meta">
                 <div><dt>比例</dt><dd>{selected.ratio}</dd></div>
+                <div><dt>尺寸</dt><dd>{selected.width && selected.height ? `${selected.width}×${selected.height}` : '—'}</dd></div>
                 <div><dt>生成时间</dt><dd>{fmt(selected.createdAt)}</dd></div>
                 <div><dt>状态</dt><dd>{selected.favorite ? '已收藏' : '未收藏'}</dd></div>
               </dl>

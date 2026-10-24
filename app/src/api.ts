@@ -55,6 +55,8 @@ export interface ApiImage {
   favorite: boolean
   createdAt: number
   deletedAt?: number | null
+  width?: number | null
+  height?: number | null
   url: string
 }
 
@@ -70,7 +72,7 @@ export const generateImage = (body: {
   count?: number
   refs?: string[]
 }) =>
-  api<{ images: Array<{ id: string; url: string; bytes: number; ratio: string }> }>('/generate', {
+  api<{ images: Array<{ id: string; url: string; bytes: number; ratio: string; width?: number | null; height?: number | null }> }>('/generate', {
     method: 'POST',
     body: JSON.stringify(body),
   })

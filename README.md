@@ -70,6 +70,10 @@ PLAN.md   方案与实施记录
 - 若接入即梦反代（`jimeng-free-api-all`，GPL-3.0），应以独立进程运行、只通过 HTTP 调用，不要链接其代码
 - 生产环境请务必挂认证，不要把这个服务直接暴露在公网无鉴权状态
 
+## vendor 本地补丁
+
+`vendor/jimeng`（jimeng-free-api-all，GPL-3.0）有一处本地修改：`src/api/controllers/images.ts` 中显式传入的 `ratio` 优先于 prompt 里的比例检测（原逻辑在 ratio=1:1 时会被 prompt 里的比例词覆盖）。升级 vendor 后需重新打这个补丁并 rebuild。
+
 ## 已知限制
 
 - ChatGPT 通道每次生成 1 张，单张约 30–60 秒
