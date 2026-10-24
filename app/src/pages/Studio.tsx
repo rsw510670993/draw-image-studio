@@ -32,6 +32,8 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
   const [count, setCount] = useState(defaults?.count ?? 2)
   const [refFiles, setRefFiles] = useState<File[]>([])
   const [refPreviews, setRefPreviews] = useState<string[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerPicked, setPickerPicked] = useState<string[]>([])
 
   const models = CHANNELS[channel].models
   const current = models.find(m => m.id === model) ?? models[0]
@@ -67,12 +69,65 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
 
   const batchPrompts = prompt.split('\n').map(line => line.trim()).filter(Boolean).slice(0, 8)
 
-  const readRefs = () => Promise.all(refFiles.map(file => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(new Error('读取参考图失败'))
-    reader.readAsDataURL(file)
-  })))
+  const toggleGalleryPick = (id: string) => {
+    setPickerPicked(prev => {
+      if (prev.includes(id)) return prev.filter(x => x !== id)
+      if (prev.length + refFiles.length >= 4) return prev
+      return [...prev, id]
+    })
+  }
+
+  const addFromGallery = async () => {
+    const picked = images.filter(img => pickerPicked.includes(img.id))
+    const files: File[] = []
+    for (const img of picked) {
+      try {
+        const res = await fetch(img.src, { credentials: 'same-origin' })
+        if (!res.ok) continue
+        const blob = await res.blob()
+        if (blob.size > 4 * 1024 * 1024) continue
+        files.push(new File([blob], `gallery-${img.id}.png`, { type: blob.type || 'image/png' }))
+      } catch { /* skip */ }
+    }
+    if (files.length === 0) {
+      onToast('没有可加入的图片（可能超过 4MB）')
+      return
+    }
+    const merged = [...refFiles, ...files].slice(0, 4)
+    setRefFiles(merged)
+    setRefPreviews(merged.map(f => URL.createObjectURL(f)))
+    setPickerOpen(false)
+    setPickerPicked([])
+  }
+
+  const compressToDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const max = 1536
+        const scale = Math.min(1, max / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.max(1, Math.round(img.width * scale))
+        canvas.height = Math.max(1, Math.round(img.height * scale))
+        const ctx = canvas.getContext('2d')
+        if (!ctx) throw new Error('压缩参考图失败')
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', 0.85))
+      } catch (error) {
+        reject(error)
+      } finally {
+        URL.revokeObjectURL(objectUrl)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('读取参考图失败'))
+    }
+    img.src = objectUrl
+  })
+
+  const readRefs = () => Promise.all(refFiles.map(compressToDataUrl))
 
   const submit = async () => {
     if (!prompt.trim() || running) return
@@ -216,9 +271,15 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
             {refFiles.length < 4 && (
               <label className="ref-add">
                 <Upload size={16} />
-                <span>图生图</span>
+                <span>上传</span>
                 <input type="file" accept="image/*" multiple onChange={e => addRefs(e.target.files)} />
               </label>
+            )}
+            {refFiles.length < 4 && (
+              <button className="ref-add" onClick={() => setPickerOpen(true)}>
+                <ImagePlus size={16} />
+                <span>图库</span>
+              </button>
             )}
           </div>
         </div>
@@ -329,6 +390,41 @@ export default function Studio({ prompt, onPrompt, job, images, onGenerate, onTo
           </div>
         )}
       </section>
+
+      {pickerOpen && (
+        <div className="picker-backdrop" onClick={() => setPickerOpen(false)}>
+          <div className="picker" onClick={e => e.stopPropagation()}>
+            <header>
+              <b>从图库选择参考图</b>
+              <span>已选 {pickerPicked.length} / {Math.max(4 - refFiles.length, 0)}</span>
+              <button className="icon-btn" onClick={() => setPickerOpen(false)} aria-label="关闭"><X size={16} /></button>
+            </header>
+            {images.length === 0 ? (
+              <p className="picker-empty">图库还没有图片，先去工作台生成一张。</p>
+            ) : (
+              <div className="picker-grid">
+                {images.slice(0, 48).map(img => (
+                  <button
+                    className={`picker-item ${pickerPicked.includes(img.id) ? 'on' : ''}`}
+                    key={img.id}
+                    onClick={() => toggleGalleryPick(img.id)}
+                    title={img.prompt}
+                  >
+                    <img src={img.src} alt="" loading="lazy" />
+                    {pickerPicked.includes(img.id) && <span className="pick">✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+            <footer>
+              <button className="ghost-btn" onClick={() => setPickerOpen(false)}>取消</button>
+              <button className="btn-primary" onClick={addFromGallery} disabled={pickerPicked.length === 0}>
+                加入参考图{pickerPicked.length > 0 ? ` (${pickerPicked.length})` : ''}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
